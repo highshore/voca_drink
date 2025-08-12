@@ -10,7 +10,41 @@ const projectRoot = resolve(__dirname, "..");
 
 // File paths
 const CSV_PATH = join(projectRoot, "japanese.csv");
-const SERVICE_ACCOUNT_PATH = join(projectRoot, "voca-drink-b5bb094bd3bd.json");
+const DEFAULT_SERVICE_ACCOUNT_PATH = join(projectRoot, "voca-drink-b5bb094bd3bd.json");
+
+function tryParseJsonMaybeBase64(value) {
+  if (!value) return null;
+  try {
+    if (value.trim().startsWith("{")) return JSON.parse(value);
+    const decoded = Buffer.from(value, "base64").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+async function loadServiceAccount() {
+  // Highest priority: JSON content from env (raw or base64)
+  const fromJsonEnv = tryParseJsonMaybeBase64(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  if (fromJsonEnv) return fromJsonEnv;
+
+  // Next: GOOGLE_APPLICATION_CREDENTIALS file path
+  const gacPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (gacPath) {
+    const content = await readFile(gacPath, "utf8");
+    return JSON.parse(content);
+  }
+
+  // Fallback: local file (kept out of git via .gitignore)
+  try {
+    const content = await readFile(DEFAULT_SERVICE_ACCOUNT_PATH, "utf8");
+    return JSON.parse(content);
+  } catch (e) {
+    throw new Error(
+      "Service account not found. Set FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS."
+    );
+  }
+}
 
 function parseArgs(argv) {
   const args = {};
@@ -59,12 +93,10 @@ function transformRowToDoc(row) {
 }
 
 async function main() {
-  const [csvContent, saJson] = await Promise.all([
+  const [csvContent, serviceAccount] = await Promise.all([
     readFile(CSV_PATH, "utf8"),
-    readFile(SERVICE_ACCOUNT_PATH, "utf8"),
+    loadServiceAccount(),
   ]);
-
-  const serviceAccount = JSON.parse(saJson);
 
   if (!getApps().length) {
     initializeApp({
