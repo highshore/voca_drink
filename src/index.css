@@ -1,0 +1,126 @@
+/* YC-style minimalist design: neutral background, sharp typography, clean spacing */
+:root {
+  --bg: #ffffff;
+  --text: #0f172a; /* slate-900 */
+  --muted: #475569; /* slate-600 */
+  --brand: #f97316; /* orange-500 */
+  --brand-600: #ea580c; /* orange-600 */
+  --border: #e2e8f0; /* slate-200 */
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.navbar {
+  border-bottom: 1px solid var(--border);
+  background: #fffdf9;
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.brand-badge {
+  width: 28px;
+  height: 28px;
+  background: var(--brand);
+  border-radius: 4px;
+}
+.brand span {
+  font-size: 18px;
+}
+
+.button {
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.button.brand {
+  border: none;
+  background: var(--brand);
+  color: white;
+}
+.button.brand:hover {
+  background: var(--brand-600);
+}
+
+.hero {
+  padding: 48px 0;
+}
+.hero h1 {
+  font-size: 40px;
+  line-height: 1.1;
+  margin: 0 0 12px;
+  letter-spacing: -0.02em;
+}
+.hero p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+.col-4 {
+  grid-column: span 4;
+}
+.col-6 {
+  grid-column: span 6;
+}
+.col-12 {
+  grid-column: span 12;
+}
+
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 20px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
