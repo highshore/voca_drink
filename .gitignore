@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Firebase service account (never commit secrets)
+voca-drink-b5bb094bd3bd.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
