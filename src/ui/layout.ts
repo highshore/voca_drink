@@ -59,6 +59,7 @@ export const s = {
     maxWidth: CONTAINER_MAX_WIDTH,
     margin: "0 auto",
     padding: `0 ${CONTAINER_PADDING_X}px`,
+    width: "100%",
   } as CSSProperties,
   main: {
     padding: "24px 0",
@@ -98,6 +99,12 @@ export const s = {
     display: "grid",
     gridTemplateColumns: "repeat(12, 1fr)",
     gap: 16,
+  } as CSSProperties,
+  gradientTitle: {
+    background: "linear-gradient(90deg, #ef4444, #f59e0b, #a855f7)",
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    color: "transparent",
   } as CSSProperties,
 };
 

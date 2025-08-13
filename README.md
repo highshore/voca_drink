@@ -1,69 +1,25 @@
-# React + TypeScript + Vite
+# Voca Drink
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite app with Firestore and FSRS scheduling.
 
-Currently, two official plugins are available:
+## Scripts
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- `npm run dev`: Start the dev server
+- `npm run build`: Type-check and build
+- `npm run preview`: Preview the build
+- `npm run lint`: Run ESLint
+- `npm run seed:japanese`: Import vocabulary from `japanese.csv`
+- `npm run count:japanese`: Count rows in `japanese.csv`
+- `node scripts/fsrs-export-logs.mjs --uid=USER_ID [--out=fsrs-review-logs.json]`: Export review logs for FSRS optimization
 
-## Expanding the ESLint configuration
+## FSRS Scheduler (Beta)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+This project includes an FSRS-4.5-based scheduler in `src/fsrs/`. When you rate in `LearnPage`, we persist both the legacy SRS (`users/{uid}/srs`) and FSRS (`users/{uid}/fsrs`). The Learn queue prefers FSRS due cards if available.
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Files:
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- `src/fsrs/types.ts`: core types
+- `src/fsrs/params.ts`: default parameters
+- `src/fsrs/scheduler.ts`: schedule logic and forgetting curve
+- `src/fsrs/optimizer.ts`: simulation and placeholder optimizer
+- `src/services/fsrsService.ts`: Firestore integration (entries, due selection, per-user params)

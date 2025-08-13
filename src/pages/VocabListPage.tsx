@@ -9,6 +9,7 @@ import {
   unsetMemorized,
 } from "../services/userService";
 import { s, colSpan } from "../ui/layout";
+import { getDeckMetadata } from "../services/deckService";
 
 type JapaneseDoc = {
   id: string;
@@ -32,7 +33,12 @@ export function VocabListPage() {
   const [items, setItems] = useState<JapaneseDoc[]>([]);
   const [memorized, setMem] = useState<Set<string>>(new Set());
 
-  const title = useMemo(() => `Vocabulary · Deck: ${deck}`, [deck]);
+  const [deckTitle, setDeckTitle] = useState<string>("");
+  const [deckCount, setDeckCount] = useState<number | null>(null);
+  const title = useMemo(() => {
+    const base = `Vocabulary · Deck: ${deck}`;
+    return deckTitle ? `${base} · ${deckTitle}` : base;
+  }, [deck, deckTitle]);
 
   useEffect(() => {
     async function load() {
@@ -40,10 +46,27 @@ export function VocabListPage() {
         navigate("/decks", { replace: true });
         return;
       }
+      try {
+        const meta = await getDeckMetadata(deck);
+        if (meta) {
+          setDeckTitle(meta.name || meta.title || deck);
+          setDeckCount(meta.count);
+        }
+      } catch (_) {}
       const q = query(collection(db, deck), orderBy("kana"), limit(200));
       const snap = await getDocs(q);
       const list: JapaneseDoc[] = [];
-      snap.forEach((doc) => list.push({ id: doc.id, ...(doc.data() as any) }));
+      snap.forEach((d) => {
+        const data = d.data() as any;
+        if (
+          d.id === "metadata" ||
+          d.id === "meta" ||
+          d.id === "_meta" ||
+          d.id === "__meta__"
+        )
+          return;
+        list.push({ id: d.id, ...(data as any) });
+      });
       setItems(list);
 
       if (user) {
@@ -73,7 +96,10 @@ export function VocabListPage() {
   return (
     <div style={s.container}>
       <div style={s.stack}>
-        <h2>{title}</h2>
+        <h2 style={s.gradientTitle}>{title}</h2>
+        {deckCount !== null && (
+          <div style={{ color: "#64748b" }}>Words: {deckCount}</div>
+        )}
         <div style={s.grid12}>
           {items.map((v) => (
             <div key={v.id} style={colSpan(6)}>

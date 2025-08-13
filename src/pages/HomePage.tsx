@@ -14,6 +14,7 @@ export function HomePage() {
               lineHeight: 1.1,
               margin: "0 0 12px",
               letterSpacing: "-0.02em",
+              ...s.gradientTitle,
             }}
           >
             Master Japanese vocabulary with spaced repetition

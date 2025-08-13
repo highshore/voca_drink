@@ -23,7 +23,7 @@ export function DecksPage() {
             justifyContent: "space-between",
           }}
         >
-          <h2 style={{ margin: 0 }}>Choose a deck</h2>
+          <h2 style={{ margin: 0, ...s.gradientTitle }}>Choose a deck</h2>
           <div style={{ fontSize: 12, color: "#64748b" }}>
             {decks.length} deck{decks.length === 1 ? "" : "s"} available
           </div>
