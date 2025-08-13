@@ -1,4 +1,5 @@
 import { Panel } from "./Styles";
+import { useI18n } from "../../i18n/I18nContext";
 
 export type QuizOption = { text: string; isCorrect: boolean };
 export type McqQuiz = { cardId: string; prompt: string; options: QuizOption[] };
@@ -14,6 +15,7 @@ export function QuizCard({
   onSelect: (idx: number) => void;
   onContinue: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Panel style={{ justifyContent: "center", padding: 24 }}>
       <div style={{ fontWeight: 700, fontSize: 18, textAlign: "center" }}>
@@ -66,7 +68,7 @@ export function QuizCard({
             }}
             onClick={onContinue}
           >
-            Continue
+            {t("quiz.continue")}
           </button>
         </div>
       )}

@@ -9,6 +9,7 @@ import { Protected } from "./components/Protected";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DecksPage } from "./pages/DecksPage";
 import { VocabListPage } from "./pages/VocabListPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { VocabDetailPage } from "./pages/VocabDetailPage";
 
 function App() {
@@ -44,6 +45,14 @@ function App() {
               element: (
                 <Protected>
                   <DashboardPage />
+                </Protected>
+              ),
+            },
+            {
+              path: "profile",
+              element: (
+                <Protected>
+                  <ProfilePage />
                 </Protected>
               ),
             },

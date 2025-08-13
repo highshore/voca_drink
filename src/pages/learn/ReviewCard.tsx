@@ -8,6 +8,7 @@ import {
   RateButton,
 } from "./Styles";
 import type { Rating } from "../../services/userService";
+import { useI18n } from "../../i18n/I18nContext";
 
 type JapaneseDoc = {
   id?: string;
@@ -33,6 +34,7 @@ export function ReviewCard({
   onShow: () => void;
   onRate: (rating: Rating) => void;
 }) {
+  const { t } = useI18n();
   const hasKanji = item.kanji && item.kanji !== item.kana;
   return (
     <Panel style={{ minHeight: 420, padding: 30 }}>
@@ -65,7 +67,7 @@ export function ReviewCard({
               <Kana>{item.kana}</Kana>
               {hasKanji && <Kanji>{item.kanji}</Kanji>}
             </KanaRow>
-            <Button onClick={onShow}>Show answer</Button>
+            <Button onClick={onShow}>{t("review.showAnswer")}</Button>
           </div>
         ) : (
           <div
@@ -151,16 +153,16 @@ export function ReviewCard({
       {showAnswer && (
         <RateRow>
           <RateButton bg="#ef4444" onClick={() => onRate("again")}>
-            Again
+            {t("review.again")}
           </RateButton>
           <RateButton bg="#f59e0b" onClick={() => onRate("hard")}>
-            Hard
+            {t("review.hard")}
           </RateButton>
           <RateButton bg="#10b981" onClick={() => onRate("good")}>
-            Good
+            {t("review.good")}
           </RateButton>
           <RateButton bg="#3b82f6" onClick={() => onRate("easy")}>
-            Easy
+            {t("review.easy")}
           </RateButton>
         </RateRow>
       )}
