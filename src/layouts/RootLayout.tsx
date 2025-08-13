@@ -1,32 +1,54 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { useI18n } from "../i18n/I18nContext";
 import { s } from "../ui/layout";
+import defaultUser from "../assets/default_user.jpg";
+import { useEffect, useRef, useState } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 
 export function RootLayout() {
-  const { user, logout, login, isLoading } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useI18n();
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const onLogin = async () => {
-    await login();
-    // If user triggered from a protected route, send them back including query/hash
-    const fromState: any = (location.state as any)?.from;
-    let target = "/";
-    if (typeof fromState === "string") {
-      target = fromState;
-    } else if (fromState && typeof fromState === "object") {
-      const p = fromState.pathname ?? "/";
-      const s = fromState.search ?? "";
-      const h = fromState.hash ?? "";
-      target = `${p}${s}${h}`;
+  useEffect(() => {
+    if (!user) {
+      setPhotoURL(null);
+      return;
     }
-    navigate(target, { replace: true });
-  };
+    const ref = doc(db, "users", user.uid);
+    const unsub = onSnapshot(ref, (snap) => {
+      const d = snap.data() as any;
+      setPhotoURL((d?.photoURL as string) ?? user.photoURL ?? null);
+    });
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    window.addEventListener("click", onClickOutside);
+    return () => window.removeEventListener("click", onClickOutside);
+  }, []);
+
+  // onLogin removed; logged-out users navigate to /login
 
   const onLogout = async () => {
     await logout();
     navigate("/");
   };
+
+  // Full-bleed pages (e.g., /login) render without the app chrome
+  if (location.pathname === "/login") {
+    return <Outlet />;
+  }
 
   return (
     <div style={s.appShell}>
@@ -42,7 +64,7 @@ export function RootLayout() {
               style={s.button}
               aria-current={location.pathname === "/decks" ? "page" : undefined}
             >
-              Decks
+              {t("nav.decks")}
             </Link>
             <Link
               to="/vocab?deck=japanese"
@@ -51,14 +73,14 @@ export function RootLayout() {
                 location.pathname.startsWith("/vocab") ? "page" : undefined
               }
             >
-              Vocabulary
+              {t("nav.vocab")}
             </Link>
             <Link
               to="/learn"
               style={s.button}
               aria-current={location.pathname === "/learn" ? "page" : undefined}
             >
-              Learn
+              {t("nav.learn")}
             </Link>
             <Link
               to="/review"
@@ -67,23 +89,103 @@ export function RootLayout() {
                 location.pathname === "/review" ? "page" : undefined
               }
             >
-              Review
+              {t("nav.review")}
             </Link>
+            {/* Profile button removed; access via avatar dropdown */}
             {isLoading ? (
               <div style={s.button} aria-busy>
-                Loading
+                {t("nav.loading")}
               </div>
             ) : user ? (
-              <button style={s.button} onClick={onLogout}>
-                Sign out
-              </button>
+              <div style={{ position: "relative" }} ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-haspopup
+                  aria-expanded={menuOpen}
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 999,
+                    padding: 0,
+                    width: 36,
+                    height: 36,
+                    background: "#fff",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                  }}
+                >
+                  <img
+                    src={photoURL || user.photoURL || defaultUser}
+                    alt="avatar"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                </button>
+                {menuOpen && (
+                  <div
+                    role="menu"
+                    style={{
+                      position: "absolute",
+                      top: 44,
+                      right: 0,
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 8,
+                      background: "#fff",
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                      minWidth: 160,
+                      zIndex: 10,
+                    }}
+                  >
+                    <Link
+                      to="/profile"
+                      style={{
+                        display: "block",
+                        padding: "10px 12px",
+                        textDecoration: "none",
+                        color: "#0f172a",
+                        fontSize: 14,
+                      }}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      {t("nav.profile")}
+                    </Link>
+                    <button
+                      style={{
+                        display: "block",
+                        padding: "10px 12px",
+                        width: "100%",
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        fontWeight: 600,
+                        fontSize: 14,
+                      }}
+                      onClick={onLogout}
+                    >
+                      {t("nav.signOut")}
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
-              <button
-                style={{ ...s.button, ...s.buttonBrand }}
-                onClick={onLogin}
+              <Link
+                to="/login"
+                style={{
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "8px 14px",
+                  background: "#0f172a",
+                  color: "#fff",
+                  textDecoration: "none",
+                  fontSize: 14,
+                }}
               >
-                Sign in with Google
-              </button>
+                {t("nav.signInShort")}
+              </Link>
             )}
           </div>
         </div>

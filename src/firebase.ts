@@ -8,6 +8,7 @@ import {
   type User,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 // Firebase web configuration
 const firebaseConfig = {
@@ -35,6 +36,7 @@ if (typeof window !== "undefined") {
 // Auth and Firestore
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // Google provider and helpers
 export const googleProvider = new GoogleAuthProvider();

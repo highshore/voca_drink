@@ -1,5 +1,6 @@
 import { Panel } from "./Styles";
 import { StatGrid } from "./StatGrid";
+import { useI18n } from "../../i18n/I18nContext";
 
 // MiniStat moved to StatGrid
 
@@ -27,39 +28,46 @@ export function StatsPanel({
   deckTotal: number;
   itemsLoaded: number;
 }) {
+  const { t } = useI18n();
   return (
     <Panel>
       <div style={{ fontWeight: 700, letterSpacing: "-0.01em", fontSize: 20 }}>
-        Progress
+        {t("stats.progress")}
       </div>
       <StatGrid
         columns={2}
         items={[
-          { label: "Due", value: stats.dueNow },
-          { label: "Overdue", value: stats.overdue },
+          { label: t("stats.due"), value: stats.dueNow },
+          { label: t("stats.overdue"), value: stats.overdue },
           {
-            label: "Remain",
+            label: t("stats.remain"),
             value: Math.max(0, dailyGoal - daily.reviewsToday),
           },
-          { label: "Done", value: daily.reviewsToday },
+          { label: t("stats.done"), value: daily.reviewsToday },
         ]}
       />
       <StatGrid
         columns={5}
         items={[
-          { label: "Again", value: stats.todayMix.again },
-          { label: "Hard", value: stats.todayMix.hard },
-          { label: "Good", value: stats.todayMix.good },
-          { label: "Easy", value: stats.todayMix.easy },
-          { label: "Acc", value: `${Math.round(stats.todayAccuracy * 100)}%` },
+          { label: t("stats.again"), value: stats.todayMix.again },
+          { label: t("stats.hard"), value: stats.todayMix.hard },
+          { label: t("stats.good"), value: stats.todayMix.good },
+          { label: t("stats.easy"), value: stats.todayMix.easy },
+          {
+            label: t("stats.acc"),
+            value: `${Math.round(stats.todayAccuracy * 100)}%`,
+          },
         ]}
       />
       <StatGrid
         columns={3}
         items={[
-          { label: "7d Ret", value: `${Math.round(stats.retention7d * 100)}%` },
-          { label: "Med S", value: stats.medianStability.toFixed(2) },
-          { label: "Mem", value: `${memorizedCount}/${deckTotal}` },
+          {
+            label: t("stats.ret7"),
+            value: `${Math.round(stats.retention7d * 100)}%`,
+          },
+          { label: t("stats.medS"), value: stats.medianStability.toFixed(2) },
+          { label: t("stats.mem"), value: `${memorizedCount}/${deckTotal}` },
         ]}
       />
       <StatGrid
@@ -80,7 +88,7 @@ export function StatsPanel({
           }}
         >
           <div style={{ fontSize: 14, color: "#64748b", marginBottom: 6 }}>
-            Next 7 days load
+            {t("stats.next7")}
           </div>
           <div
             style={{
@@ -112,9 +120,9 @@ export function StatsPanel({
       <StatGrid
         columns={3}
         items={[
-          { label: "Streak", value: `${daily.streakDays}d` },
-          { label: "Words", value: deckTotal },
-          { label: "Loaded", value: itemsLoaded },
+          { label: t("stats.streak"), value: `${daily.streakDays}d` },
+          { label: t("stats.words"), value: deckTotal },
+          { label: t("stats.loaded"), value: itemsLoaded },
         ]}
       />
     </Panel>

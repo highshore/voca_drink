@@ -11,7 +11,14 @@ import {
   increment,
 } from "firebase/firestore";
 import type { User } from "../firebase";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
+import type { LanguageCode } from "../i18n/messages";
 
 export function userDocRef(uid: string) {
   return doc(db, "users", uid);
@@ -31,12 +38,88 @@ export async function ensureUserDocument(user: User): Promise<void> {
     reviewsToday: 0,
     reviewsTodayDate: null as string | null,
     streakDays: 0,
+    language: (typeof navigator !== "undefined" &&
+      (navigator.language?.startsWith("ko") ? "ko" : "en")) as LanguageCode,
   };
   if (!snap.exists()) {
     await setDoc(ref, base, { merge: true });
   } else {
     await updateDoc(ref, { lastLoginAt: serverTimestamp() });
   }
+}
+
+export type UserProfile = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  photoPath?: string | null;
+  dailyGoal: number;
+  language?: LanguageCode;
+};
+
+export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  const ref = userDocRef(uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const d = snap.data() as any;
+  return {
+    uid: d.uid ?? uid,
+    email: (d.email as string) ?? null,
+    displayName: (d.displayName as string) ?? null,
+    photoURL: (d.photoURL as string) ?? null,
+    photoPath: (d.photoPath as string | null | undefined) ?? null,
+    dailyGoal: Number(d.dailyGoal ?? 20),
+    language: (d.language as LanguageCode | undefined) ?? undefined,
+  };
+}
+
+export async function updateUserProfile(
+  uid: string,
+  updates: Partial<
+    Pick<
+      UserProfile,
+      "displayName" | "dailyGoal" | "language" | "photoURL" | "photoPath"
+    >
+  >
+): Promise<void> {
+  const ref = userDocRef(uid);
+  await setDoc(
+    ref,
+    { ...updates, lastLoginAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+export async function uploadAndSetUserAvatar(
+  uid: string,
+  file: File
+): Promise<{ url: string; path: string }> {
+  const path = `users/${uid}/avatar`;
+  const storageRef = ref(storage, path);
+
+  // One-time cleanup if legacy timestamped path exists
+  try {
+    const snap = await getDoc(userDocRef(uid));
+    const oldPath = (snap.exists() ? (snap.data() as any)?.photoPath : null) as
+      | string
+      | null
+      | undefined;
+    if (oldPath && oldPath !== path) {
+      try {
+        await deleteObject(ref(storage, oldPath));
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  await uploadBytes(storageRef, file, {
+    contentType: file.type || undefined,
+    cacheControl: "public, max-age=0, no-cache",
+  });
+  const baseUrl = await getDownloadURL(storageRef);
+  const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
+  await updateUserProfile(uid, { photoURL: url, photoPath: path });
+  return { url, path };
 }
 
 function formatDateYMD(d: Date): string {
