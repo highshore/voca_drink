@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 
 export const NAV_HEIGHT = 64;
 export const CONTAINER_MAX_WIDTH = 960;
-export const CONTAINER_PADDING_X = 20;
+export const CONTAINER_PADDING_X = 5;
 export const SPACING = 16;
 
 export const colors = {

@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import styled from "styled-components";
-import tempLogo from "../assets/voca_drink_logo_temp.jpg";
+import tempLogo from "../assets/voca_drink_logo.png";
+import kakaoIcon from "../assets/kakao_btn.png";
 
 const colors = {
   primary: "#2C1810",
@@ -29,7 +30,7 @@ const PageWrapper = styled.div`
 const ContentContainer = styled.div`
   width: 100%;
   max-width: 550px;
-  margin: -100px 0 0 0;
+  margin: -150px 0 0 0;
   padding: 20px 2rem;
   flex: 1;
   display: flex;
@@ -46,16 +47,17 @@ const Header = styled.header`
 `;
 
 const Logo = styled.img`
-  height: 28px;
+  height: 32px;
   width: auto;
   margin-left: 8px;
 `;
 
 const BrandText = styled.span`
-  font-weight: 800;
+  font-size: 1.4rem;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: ${colors.text.dark};
-  margin-left: 8px;
+  margin-left: 2px;
 `;
 
 const Link = styled(RouterLink)`
@@ -106,6 +108,16 @@ const ChoiceButton = styled.button`
   }
 `;
 
+const KakaoButton = styled(ChoiceButton)`
+  background-color: #fee500;
+  color: #3c1e1e;
+  border-color: #fee500;
+  &:hover {
+    background-color: #fdd800;
+    border-color: #fdd800;
+  }
+`;
+
 export function LoginPage() {
   const { isLoading, user, login } = useAuth();
   const navigate = useNavigate();
@@ -142,7 +154,7 @@ export function LoginPage() {
           }}
         >
           <Logo src={tempLogo} alt="Voca Drink Logo" />
-          <BrandText>Voca Drink</BrandText>
+          <BrandText>VocaDrink.</BrandText>
         </Link>
       </Header>
       <ContentContainer>
@@ -184,6 +196,14 @@ export function LoginPage() {
             </span>
             Continue with Google
           </ChoiceButton>
+          <KakaoButton disabled title="Coming soon">
+            <img
+              src={kakaoIcon}
+              alt="Kakao"
+              style={{ width: 26, height: 24 }}
+            />
+            Continue with Kakao
+          </KakaoButton>
         </ChoiceButtonContainer>
       </ContentContainer>
     </PageWrapper>
