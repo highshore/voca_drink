@@ -35,6 +35,7 @@ export function ProfilePage() {
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifySuccess, setVerifySuccess] = useState(false);
 
   const COUNTRY_CODES: Array<{ label: string; dial: string; iso: string }> = [
     { label: "Korea (+82)", dial: "+82", iso: "KR" },
@@ -43,6 +44,22 @@ export function ProfilePage() {
     { label: "Canada (+1)", dial: "+1", iso: "CA" },
     { label: "United Kingdom (+44)", dial: "+44", iso: "GB" },
   ];
+
+  function flagEmojiFromIso(iso: string): string {
+    const upper = iso.trim().toUpperCase();
+    if (upper.length !== 2) return "";
+    const A = 0x1f1e6;
+    const offset = (c: string) => c.charCodeAt(0) - 65 + A;
+    return (
+      String.fromCodePoint(offset(upper[0])) +
+      String.fromCodePoint(offset(upper[1]))
+    );
+  }
+
+  const LANGUAGE_FLAG: Record<LanguageCode, string> = {
+    en: "🇺🇸",
+    ko: "🇰🇷",
+  };
 
   function buildE164(inputDigits: string, dial: string): string {
     const digits = (inputDigits || "").replace(/\D/g, "");
@@ -80,6 +97,7 @@ export function ProfilePage() {
           } catch (_) {
             setPhone(user.phoneNumber);
           }
+          setVerifySuccess(true);
         }
       }
     }
@@ -156,6 +174,8 @@ export function ProfilePage() {
     await confirmation.confirm(code);
     setVerifying(false);
     setCode("");
+    setVerifySuccess(true);
+    setVerifyError(null);
   };
 
   const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,7 +348,10 @@ export function ProfilePage() {
             <div style={{ display: "flex", gap: 8 }}>
               <select
                 value={countryDial}
-                onChange={(e) => setCountryDial(e.target.value)}
+                onChange={(e) => {
+                  setCountryDial(e.target.value);
+                  setVerifySuccess(false);
+                }}
                 style={{
                   border: "1px solid #e2e8f0",
                   borderRadius: 8,
@@ -339,14 +362,17 @@ export function ProfilePage() {
               >
                 {COUNTRY_CODES.map((c) => (
                   <option key={c.iso} value={c.dial}>
-                    {c.label}
+                    {`${flagEmojiFromIso(c.iso)} ${c.label}`}
                   </option>
                 ))}
               </select>
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setVerifySuccess(false);
+                }}
                 placeholder="Phone number"
                 style={{
                   border: "1px solid #e2e8f0",
@@ -356,7 +382,7 @@ export function ProfilePage() {
                   flex: 1,
                 }}
               />
-              {!verifying ? (
+              {!verifying && (
                 <button
                   style={{ ...s.button }}
                   onClick={onStartPhoneVerification}
@@ -364,34 +390,61 @@ export function ProfilePage() {
                 >
                   Verify
                 </button>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    placeholder="Code"
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 8,
-                      padding: "10px 12px",
-                      fontSize: 14,
-                      width: 120,
-                    }}
-                  />
-                  <button
-                    style={{ ...s.button }}
-                    onClick={onConfirmCode}
-                    disabled={!code}
-                  >
-                    Confirm
-                  </button>
-                </>
               )}
             </div>
+            {verifying && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Code"
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    width: 160,
+                  }}
+                />
+                <button
+                  style={{ ...s.button }}
+                  onClick={onConfirmCode}
+                  disabled={!code}
+                >
+                  Confirm
+                </button>
+              </div>
+            )}
             {verifyError && (
               <div style={{ color: "#b91c1c", fontSize: 13 }}>
                 {verifyError}
+              </div>
+            )}
+            {verifySuccess && !verifying && (
+              <div
+                style={{
+                  color: "#16a34a",
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  style={{ width: 18, height: 18 }}
+                  aria-hidden
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.603 3.799A4.49 4.49 0 0 1 12 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 0 1 3.498 1.307 4.491 4.491 0 0 1 1.307 3.497A4.49 4.49 0 0 1 21.75 12a4.49 4.49 0 0 1-1.549 3.397 4.491 4.491 0 0 1-1.307 3.497 4.491 4.491 0 0 1-3.497 1.307A4.49 4.49 0 0 1 12 21.75a4.49 4.49 0 0 1-3.397-1.549 4.49 4.49 0 0 1-3.498-1.306 4.491 4.491 0 0 1-1.307-3.498A4.49 4.49 0 0 1 2.25 12c0-1.357.6-2.573 1.549-3.397a4.49 4.49 0 0 1 1.307-3.497 4.49 4.49 0 0 1 3.497-1.307Zm7.007 6.387a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span>Verified</span>
               </div>
             )}
             <div id="recaptcha-container" />
@@ -435,7 +488,7 @@ export function ProfilePage() {
             >
               {SUPPORTED_LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
-                  {l.label}
+                  {`${LANGUAGE_FLAG[l.code] ?? ""} ${l.label}`}
                 </option>
               ))}
             </select>
