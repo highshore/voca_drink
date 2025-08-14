@@ -9,6 +9,8 @@ import {
   setDoc,
   updateDoc,
   increment,
+  arrayUnion,
+  arrayRemove,
 } from "firebase/firestore";
 import type { User } from "../firebase";
 import { db, storage } from "../firebase";
@@ -506,4 +508,37 @@ export async function incrementDeckReviewStats(
     },
     { merge: true }
   );
+}
+
+// --- Accountability buddies ---
+export async function getAccountabilityBuddies(uid: string): Promise<string[]> {
+  const snap = await getDoc(userDocRef(uid));
+  if (!snap.exists()) return [];
+  const d = snap.data() as any;
+  const arr = d.buddies;
+  return Array.isArray(arr)
+    ? arr.filter((x: any) => typeof x === "string")
+    : [];
+}
+
+export async function addAccountabilityBuddy(
+  uid: string,
+  buddyUid: string
+): Promise<void> {
+  const ref = userDocRef(uid);
+  await updateDoc(ref, {
+    buddies: arrayUnion(buddyUid),
+    lastLoginAt: serverTimestamp(),
+  });
+}
+
+export async function removeAccountabilityBuddy(
+  uid: string,
+  buddyUid: string
+): Promise<void> {
+  const ref = userDocRef(uid);
+  await updateDoc(ref, {
+    buddies: arrayRemove(buddyUid),
+    lastLoginAt: serverTimestamp(),
+  });
 }
