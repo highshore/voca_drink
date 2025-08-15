@@ -40,8 +40,24 @@ export function ReviewCard({
     <Panel style={{ minHeight: 420, padding: 30 }}>
       {showAnswer && (
         <KanaRow>
-          <Kana>{item.kana}</Kana>
-          {hasKanji && <Kanji>{item.kanji}</Kanji>}
+          <Kana
+            style={{
+              willChange: "transform",
+              transition: "transform 120ms ease",
+            }}
+          >
+            {item.kana}
+          </Kana>
+          {hasKanji && (
+            <Kanji
+              style={{
+                willChange: "transform",
+                transition: "transform 120ms ease",
+              }}
+            >
+              {item.kanji}
+            </Kanji>
+          )}
         </KanaRow>
       )}
 
@@ -78,7 +94,15 @@ export function ReviewCard({
               alignItems: "center",
             }}
           >
-            <div style={{ fontSize: 22, fontWeight: 600, textAlign: "center" }}>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 600,
+                textAlign: "center",
+                willChange: "transform",
+                transition: "transform 120ms ease",
+              }}
+            >
               {item.meanings?.ko}
             </div>
             {item.tags && item.tags.length > 0 && (
