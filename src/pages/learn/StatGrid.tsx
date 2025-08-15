@@ -5,13 +5,13 @@ function MiniStat({ label, value }: StatItem) {
     <div
       style={{
         border: "1px solid #e2e8f0",
-        borderRadius: 10,
-        padding: 10,
+        borderRadius: 12,
+        padding: 12,
         background: "#ffffff",
       }}
     >
-      <div style={{ fontSize: 12, color: "#64748b" }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
+      <div style={{ fontSize: 14, color: "#64748b" }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800 }}>{value}</div>
     </div>
   );
 }
@@ -28,7 +28,7 @@ export function StatGrid({
       style={{
         display: "grid",
         gridTemplateColumns: `repeat(${columns}, 1fr)`,
-        gap: 8,
+        gap: 10,
       }}
     >
       {items.map((it, i) => (

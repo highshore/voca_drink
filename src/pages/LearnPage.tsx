@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -14,11 +14,15 @@ import {
   incrementReviewStats,
   setUserCurrentDeck,
   updateSrsOnAnswer,
+  recordReviewEvent,
+  updateUserLastReview,
+  incrementDeckReviewStats,
   type Rating,
 } from "../services/userService";
 import { useLocation, useNavigate } from "react-router-dom";
 import { s } from "../ui/layout";
-import { CardWrap } from "./learn/Styles";
+import { AnimatedEmoji, emojiCode } from "../ui/AnimatedEmoji";
+import { CardWrap, Panel } from "./learn/Styles";
 import { StatsPanel } from "./learn/StatsPanel";
 import { QuizCard } from "./learn/QuizCard";
 import { ReviewCard } from "./learn/ReviewCard";
@@ -34,6 +38,7 @@ import {
   difficultyBucketsOfDue,
   forecastCountsNext7Days,
   getUpcomingVocabIdsForDeck,
+  updateFsrsOnAnswer,
 } from "../services/fsrsService";
 import { getMemorizedSetForDeck } from "../services/userService";
 
@@ -50,12 +55,19 @@ type JapaneseDoc = {
   }>;
 };
 
-type McqQuiz = {
-  type: "mcq";
-  cardId: string;
-  prompt: string;
-  options: Array<{ text: string; isCorrect: boolean }>; // 4 options
-};
+type McqQuiz =
+  | {
+      type: "mcq"; // meaning -> choose correct meaning for kana/kanji
+      cardId: string;
+      prompt: string;
+      options: Array<{ text: string; isCorrect: boolean }>;
+    }
+  | {
+      type: "rev"; // reverse: meaning shown -> select the correct word (kana + optional kanji)
+      cardId: string;
+      prompt: string; // the meaning text
+      options: Array<{ text: string; isCorrect: boolean }>;
+    };
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -81,21 +93,36 @@ function buildMcqFor(
     );
   if (distractors.length < 3) return null;
   const chosen = shuffleArray(distractors).slice(0, 3);
-  const options = shuffleArray([
-    { text: targetMeaning, isCorrect: true },
-    ...chosen.map((d) => ({
-      text: (d.meanings?.ko || "").trim(),
-      isCorrect: false,
-    })),
-  ]);
-  return {
+  const forward: McqQuiz = {
     type: "mcq",
     cardId: target.id!,
     prompt: `Choose the meaning for: ${target.kana}${
       target.kanji && target.kanji !== target.kana ? ` (${target.kanji})` : ""
     }`,
-    options,
+    options: shuffleArray([
+      { text: targetMeaning, isCorrect: true },
+      ...chosen.map((d) => ({
+        text: (d.meanings?.ko || "").trim(),
+        isCorrect: false,
+      })),
+    ]),
   };
+
+  // Build reverse quiz: show meaning -> choose correct word
+  const wordOf = (d: JapaneseDoc) =>
+    `${d.kana}${d.kanji && d.kanji !== d.kana ? ` (${d.kanji})` : ""}`;
+  const reverse: McqQuiz = {
+    type: "rev",
+    cardId: target.id!,
+    prompt: `Which word matches: ${targetMeaning}?`,
+    options: shuffleArray([
+      { text: wordOf(target), isCorrect: true },
+      ...chosen.map((d) => ({ text: wordOf(d), isCorrect: false })),
+    ]),
+  };
+
+  // 50/50 choose forward or reverse
+  return Math.random() < 0.5 ? forward : reverse;
 }
 
 export function LearnPage() {
@@ -136,9 +163,53 @@ export function LearnPage() {
   const surpriseEveryN = 5;
   const [quiz, setQuiz] = useState<McqQuiz | null>(null);
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
-  const [quizResult, setQuizResult] = useState<"correct" | "wrong" | null>(
-    null
-  );
+  // result is derived at selection time; no separate state needed
+  const [feedback, setFeedback] = useState<{
+    key: string;
+    code: string;
+    until: number;
+    top?: number;
+    left?: number;
+  } | null>(null);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const advanceTimer = useRef<number | null>(null);
+
+  // auto-clear feedback overlay
+  useEffect(() => {
+    if (!feedback) return;
+    const ms = Math.max(0, feedback.until - Date.now());
+    const id = window.setTimeout(() => setFeedback(null), ms);
+    return () => window.clearTimeout(id);
+  }, [feedback]);
+
+  useEffect(() => {
+    return () => {
+      if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+    };
+  }, []);
+
+  function advanceAfter(ms: number) {
+    setIsAdvancing(true);
+    if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+    advanceTimer.current = window.setTimeout(() => {
+      setCurrent((n) => {
+        const next = (n + 1) % Math.max(1, items.length);
+        const index1Based = n + 1;
+        if (index1Based % surpriseEveryN === 0 && surprisePool.length > 5) {
+          const rnd = Math.floor(Math.random() * surprisePool.length);
+          const target = surprisePool[rnd];
+          const q = buildMcqFor(target, surprisePool);
+          if (q) setQuiz(q);
+        }
+        return next;
+      });
+      // Clear any active quiz state when moving on
+      setQuiz(null);
+      setQuizSelected(null);
+      setFeedback(null);
+      setIsAdvancing(false);
+    }, Math.max(0, ms));
+  }
   async function refreshStats(currentUid: string, currentDeck: string) {
     try {
       const [mix, retention, overdue, forecast, medianS, diffMix, dueIds] =
@@ -333,11 +404,11 @@ export function LearnPage() {
     setShowAnswer(false);
   }, [current]);
 
-  // Reveal answer on Space key
+  // Reveal answer on Space key (disabled during advancing)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.code === "Space" || e.key === " ") {
-        if (!showAnswer) {
+        if (!showAnswer && !isAdvancing && !quiz) {
           e.preventDefault();
           setShowAnswer(true);
         }
@@ -345,114 +416,97 @@ export function LearnPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showAnswer]);
+  }, [showAnswer, isAdvancing, quiz]);
 
   const onRate = async (rating: Rating) => {
-    try {
-      if (user) {
-        await incrementReviewStats(user.uid);
-        // reflect locally
-        setDaily((d) => ({ ...d, reviewsToday: d.reviewsToday + 1 }));
-        // optimistic update of stats for immediate feedback
-        setStats((prev) => {
-          const mix = { ...prev.todayMix } as any;
-          mix[rating] = (mix[rating] || 0) + 1;
-          const total = mix.again + mix.hard + mix.good + mix.easy;
-          const acc = total > 0 ? (mix.hard + mix.good + mix.easy) / total : 0;
-          const dueNow = Math.max(0, prev.dueNow - 1);
-          return { ...prev, todayMix: mix, todayAccuracy: acc, dueNow };
+    if (isAdvancing) return;
+    if (!user) return;
+    const currentItem = items[current];
+
+    // Immediate UI updates
+    setDaily((d) => ({ ...d, reviewsToday: d.reviewsToday + 1 }));
+    setStats((prev) => {
+      const mix = { ...prev.todayMix } as any;
+      mix[rating] = (mix[rating] || 0) + 1;
+      const total = mix.again + mix.hard + mix.good + mix.easy;
+      const acc = total > 0 ? (mix.hard + mix.good + mix.easy) / total : 0;
+      const dueNow = Math.max(0, prev.dueNow - 1);
+      return { ...prev, todayMix: mix, todayAccuracy: acc, dueNow };
+    });
+    const cp =
+      rating === "again"
+        ? emojiCode("again")
+        : rating === "hard"
+        ? emojiCode("hard")
+        : rating === "good"
+        ? emojiCode("good")
+        : emojiCode("easy");
+    setFeedback({ key: `${Date.now()}`, code: cp, until: Date.now() + 1200 });
+    advanceAfter(1200);
+
+    // Maintain surprise pool immediately
+    if (currentItem && currentItem.id) {
+      if (rating === "good" || rating === "easy") {
+        setSurprisePool((pool) => {
+          if (pool.find((p) => p.id === currentItem.id)) return pool;
+          return [{ ...currentItem }, ...pool].slice(0, 200);
         });
-        const currentItem = items[current];
-        if (currentItem && currentItem.id) {
+      } else {
+        setSurprisePool((pool) => pool.filter((p) => p.id !== currentItem.id));
+      }
+    }
+
+    // Background operations (non-blocking)
+    (async () => {
+      try {
+        await incrementReviewStats(user.uid);
+      } catch (_) {}
+      if (currentItem && currentItem.id) {
+        try {
           await updateSrsOnAnswer(user.uid, deck, currentItem.id, rating);
-          // FSRS scheduling (in parallel to legacy SRS for now)
-          try {
-            const { updateFsrsOnAnswer } = await import(
-              "../services/fsrsService"
-            );
-            await updateFsrsOnAnswer(
-              user.uid,
-              deck,
-              currentItem.id,
-              rating,
-              0.9
-            );
-          } catch (_) {
-            // ignore FSRS errors to avoid blocking the session
-          }
-          const {
-            recordReviewEvent,
-            updateUserLastReview,
-            incrementDeckReviewStats,
-          } = await import("../services/userService");
+        } catch (_) {}
+        try {
+          await updateFsrsOnAnswer(user.uid, deck, currentItem.id, rating, 0.9);
+        } catch (_) {}
+        try {
           await recordReviewEvent(user.uid, deck, currentItem.id, rating);
           await updateUserLastReview(user.uid, deck, currentItem.id, rating);
           await incrementDeckReviewStats(user.uid, deck);
-          // refresh server-side stats in background
-          refreshStats(user.uid, deck);
-          // Update surprise pool maintenance (add if good/easy, remove if again/hard)
-          if (rating === "good" || rating === "easy") {
-            setSurprisePool((pool) => {
-              if (pool.find((p) => p.id === currentItem.id)) return pool;
-              return [{ ...currentItem }, ...pool].slice(0, 200);
-            });
-          } else {
-            setSurprisePool((pool) =>
-              pool.filter((p) => p.id !== currentItem.id)
-            );
-          }
-          // If this was a surprise quiz and the user failed (again/hard), demote the concept by one tier
-          // Demotion rule: easy->good, good->hard; again/hard unchanged. We approximate by re-queuing a downgraded rating once.
-          // This only applies if the injected item equals currentItem and rating is a failure relative to its pool-qualified state.
-          try {
-            if (rating === "again" || rating === "hard") {
-              // Optionally, we could look up the last rating from reviews to decide demotion. For now, apply demotion if it exists in pool.
-              const wasInPool = surprisePool.find(
-                (p) => p.id === currentItem.id
-              );
-              if (wasInPool) {
-                // Demote by submitting a synthetic rating one step down relative to best of (good/easy)
-                const demoted: Rating = "hard"; // easy->good->hard collapse to hard demotion
+        } catch (_) {}
+        try {
+          // Demote if from surprise pool and failed
+          if (rating === "again" || rating === "hard") {
+            const wasInPool = surprisePool.find((p) => p.id === currentItem.id);
+            if (wasInPool) {
+              const demoted: Rating = "hard";
+              try {
                 await updateSrsOnAnswer(
                   user.uid,
                   deck,
                   currentItem.id,
                   demoted
                 );
-                try {
-                  const { updateFsrsOnAnswer } = await import(
-                    "../services/fsrsService"
-                  );
-                  await updateFsrsOnAnswer(
-                    user.uid,
-                    deck,
-                    currentItem.id,
-                    demoted,
-                    0.9
-                  );
-                } catch (_) {}
-              }
+              } catch (_) {}
+              try {
+                await updateFsrsOnAnswer(
+                  user.uid,
+                  deck,
+                  currentItem.id,
+                  demoted,
+                  0.9
+                );
+              } catch (_) {}
             }
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
       }
-    } finally {
-      // Inject surprise quiz every N cards if available
-      setCurrent((n) => {
-        const next = (n + 1) % Math.max(1, items.length);
-        const index1Based = n + 1;
-        if (index1Based % surpriseEveryN === 0 && surprisePool.length > 5) {
-          const rnd = Math.floor(Math.random() * surprisePool.length);
-          const target = surprisePool[rnd];
-          const q = buildMcqFor(target, surprisePool);
-          if (q) setQuiz(q);
-        }
-        return next;
-      });
-    }
+      try {
+        await refreshStats(user.uid, deck);
+      } catch (_) {}
+    })();
   };
 
-  // Keyboard: when quiz open -> 1..4 selects option; otherwise ratings after reveal
+  // Keyboard: when quiz open -> 1..4 selects option; otherwise ratings after reveal (disabled during advancing)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (quiz) {
@@ -460,14 +514,35 @@ export function LearnPage() {
           e.preventDefault();
           const idx = Number(e.key) - 1;
           if (idx >= 0 && idx < 4) {
+            if (isAdvancing || quizSelected !== null) return;
             setQuizSelected(idx);
             const isCorrect = quiz.options[idx]?.isCorrect;
-            setQuizResult(isCorrect ? "correct" : "wrong");
+            const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
+            setFeedback({
+              key: `${Date.now()}`,
+              code: cp,
+              until: Date.now() + 1400,
+            });
+            // optional demotion on wrong answer
+            if (!isCorrect && user) {
+              const demoted: Rating = "hard";
+              updateSrsOnAnswer(user.uid, deck, quiz.cardId, demoted).catch(
+                () => {}
+              );
+              updateFsrsOnAnswer(
+                user.uid!,
+                deck,
+                quiz.cardId,
+                demoted,
+                0.9
+              ).catch(() => {});
+            }
+            advanceAfter(1400);
           }
         }
         return;
       }
-      if (!showAnswer) return;
+      if (!showAnswer || isAdvancing) return;
       if (e.key === "1") {
         e.preventDefault();
         onRate("again");
@@ -484,7 +559,7 @@ export function LearnPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showAnswer, onRate, quiz]);
+  }, [showAnswer, onRate, quiz, isAdvancing, quizSelected, user, deck]);
 
   return (
     <div style={{ ...s.container }}>
@@ -515,40 +590,40 @@ export function LearnPage() {
         }}
       >
         <CardWrap>
-          {quiz ? (
-            <QuizCard
-              quiz={{
-                cardId: quiz.cardId,
-                prompt: quiz.prompt,
-                options: quiz.options,
+          {/* Overlay feedback emoji */}
+          {feedback && feedback.until > Date.now() && (
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 5,
+                pointerEvents: "none",
               }}
+            >
+              <AnimatedEmoji codepoint={feedback.code} size={120} />
+            </div>
+          )}
+          {isAdvancing ? (
+            <Panel style={{ minHeight: 420 }} />
+          ) : quiz ? (
+            <QuizCard
+              quiz={quiz}
               selected={quizSelected}
               onSelect={(i) => {
                 if (quizSelected !== null) return;
+                if (isAdvancing) return;
                 setQuizSelected(i);
                 const isCorrect = quiz.options[i]?.isCorrect;
-                setQuizResult(isCorrect ? "correct" : "wrong");
-              }}
-              onContinue={() => {
-                if (quizResult === "wrong" && user) {
-                  const demoted: Rating = "hard";
-                  updateSrsOnAnswer(user.uid, deck, quiz.cardId, demoted).catch(
-                    () => {}
-                  );
-                  import("../services/fsrsService").then(
-                    ({ updateFsrsOnAnswer }) =>
-                      updateFsrsOnAnswer(
-                        user.uid!,
-                        deck,
-                        quiz.cardId,
-                        demoted,
-                        0.9
-                      ).catch(() => {})
-                  );
-                }
-                setQuiz(null);
-                setQuizSelected(null);
-                setQuizResult(null);
+                const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
+                setFeedback({
+                  key: `${Date.now()}`,
+                  code: cp,
+                  until: Date.now() + 1400,
+                });
+                // hold showing the next state until the emoji is done
+                advanceAfter(1400);
               }}
             />
           ) : (

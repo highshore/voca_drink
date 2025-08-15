@@ -16,6 +16,7 @@ export const CardWrap = styled.div`
   min-height: 420px;
   display: flex;
   width: 100%;
+  position: relative;
 `;
 
 export const Panel = styled.div`
@@ -23,7 +24,7 @@ export const Panel = styled.div`
   border-radius: 20px;
   background: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  padding: 30px;
+  padding: 34px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -32,10 +33,10 @@ export const Panel = styled.div`
 
 export const Button = styled.button`
   border: 1px solid #e2e8f0;
-  padding: 14px 28px;
-  border-radius: 12px;
-  font-size: 18px;
-  font-weight: 600;
+  padding: 16px 30px;
+  border-radius: 14px;
+  font-size: 20px;
+  font-weight: 700;
   background: #f8fafc;
   cursor: pointer;
   transition: all 0.2s;
@@ -51,10 +52,10 @@ export const RateRow = styled.div`
 
 export const RateButton = styled.button<{ bg: string }>`
   border: none;
-  padding: 14px 22px;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
+  padding: 16px 24px;
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 700;
   color: #ffffff;
   cursor: pointer;
   transition: all 0.2s;
@@ -70,13 +71,13 @@ export const KanaRow = styled.div`
 `;
 
 export const Kana = styled.div`
-  font-size: 44px;
-  font-weight: 800;
+  font-size: 52px;
+  font-weight: 900;
   letter-spacing: -0.02em;
 `;
 
 export const Kanji = styled.div`
-  font-size: 30px;
+  font-size: 36px;
   color: #64748b;
-  font-weight: 600;
+  font-weight: 700;
 `;
