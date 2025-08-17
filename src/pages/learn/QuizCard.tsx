@@ -1,4 +1,4 @@
-import { Panel } from "./Styles";
+import { Panel, QuizOptionsGrid } from "./Styles";
 
 export type QuizOption = { text: string; isCorrect: boolean };
 export type McqQuiz =
@@ -19,14 +19,7 @@ export function QuizCard({
       <div style={{ fontWeight: 800, fontSize: 22, textAlign: "center" }}>
         {quiz.prompt}
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-          gap: 12,
-          marginTop: 12,
-        }}
-      >
+      <QuizOptionsGrid>
         {quiz.options.map((opt, i) => (
           <button
             key={i}
@@ -54,7 +47,7 @@ export function QuizCard({
             {i + 1}) {opt.text}
           </button>
         ))}
-      </div>
+      </QuizOptionsGrid>
     </Panel>
   );
 }

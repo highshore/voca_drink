@@ -57,7 +57,7 @@ export function ReviewPage() {
         <h2 style={s.gradientTitle}>Quick Review · Deck: {deck}</h2>
         <div style={s.grid12}>
           {items.map((item, idx) => (
-            <div key={idx} style={{ gridColumn: "span 4" }}>
+            <div key={idx} className="col-4">
               <div
                 style={{
                   ...s.card,

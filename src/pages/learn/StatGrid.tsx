@@ -27,7 +27,10 @@ export function StatGrid({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${columns}, 1fr)`,
+        gridTemplateColumns:
+          typeof window !== "undefined" && window.innerWidth < 480
+            ? "repeat(2, 1fr)"
+            : `repeat(${columns}, 1fr)`,
         gap: 10,
       }}
     >

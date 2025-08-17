@@ -17,6 +17,9 @@ export const CardWrap = styled.div`
   display: flex;
   width: 100%;
   position: relative;
+  @media (max-width: 480px) {
+    min-height: 360px;
+  }
 `;
 
 export const Panel = styled.div`
@@ -29,6 +32,10 @@ export const Panel = styled.div`
   flex-direction: column;
   gap: 12px;
   width: 100%;
+  @media (max-width: 640px) {
+    padding: 22px;
+    border-radius: 16px;
+  }
 `;
 
 export const Button = styled.button`
@@ -61,6 +68,12 @@ export const RateButton = styled.button<{ bg: string }>`
   transition: all 0.2s;
   min-width: 110px;
   background: ${(p) => p.bg};
+  @media (max-width: 480px) {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+    font-size: 16px;
+    padding: 14px 16px;
+  }
 `;
 
 export const KanaRow = styled.div`
@@ -74,10 +87,26 @@ export const Kana = styled.div`
   font-size: 52px;
   font-weight: 900;
   letter-spacing: -0.02em;
+  @media (max-width: 480px) {
+    font-size: 40px;
+  }
 `;
 
 export const Kanji = styled.div`
   font-size: 36px;
   color: #64748b;
   font-weight: 700;
+  @media (max-width: 480px) {
+    font-size: 26px;
+  }
+`;
+
+export const QuizOptionsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  @media (max-width: 480px) {
+    grid-template-columns: 1fr;
+  }
 `;

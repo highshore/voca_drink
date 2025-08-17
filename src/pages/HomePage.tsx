@@ -12,7 +12,7 @@ export function HomePage() {
         <div style={colSpan(12)}>
           <h1
             style={{
-              fontSize: 40,
+              fontSize: "clamp(28px, 5vw, 40px)",
               lineHeight: 1.1,
               margin: "0 0 12px",
               letterSpacing: "-0.02em",

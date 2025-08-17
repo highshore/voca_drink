@@ -69,6 +69,11 @@ type McqQuiz =
       options: Array<{ text: string; isCorrect: boolean }>;
     };
 
+// Session-level relearning configuration to approximate Anki defaults:
+// Learning steps: 1m, 10m for "Again"; shorter delay for "Hard".
+const LEARN_STEPS_MS = [60_000, 10 * 60_000];
+const HARD_DELAY_MS = 90_000;
+
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -173,6 +178,11 @@ export function LearnPage() {
   } | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
   const advanceTimer = useRef<number | null>(null);
+  const currentRef = useRef<number>(0);
+  const learningMapRef = useRef<
+    Map<string, { item: JapaneseDoc; availableAt: number }>
+  >(new Map());
+  const stepMapRef = useRef<Map<string, number>>(new Map());
 
   // auto-clear feedback overlay
   useEffect(() => {
@@ -187,6 +197,75 @@ export function LearnPage() {
       if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    currentRef.current = current;
+  }, [current]);
+
+  function scheduleRelearn(item: JapaneseDoc, kind: "again" | "hard") {
+    if (!item || !item.id) return;
+    const now = Date.now();
+    if (kind === "again") {
+      // Reset to first learning step on Again
+      const stepIdx = 0;
+      const delay = LEARN_STEPS_MS[stepIdx];
+      learningMapRef.current.set(item.id, {
+        item,
+        availableAt: now + delay,
+      });
+      stepMapRef.current.set(item.id, stepIdx);
+    } else if (kind === "hard") {
+      learningMapRef.current.set(item.id, {
+        item,
+        availableAt: now + HARD_DELAY_MS,
+      });
+    }
+  }
+
+  function scheduleNextLearningStep(item: JapaneseDoc) {
+    if (!item || !item.id) return;
+    const now = Date.now();
+    const prev = stepMapRef.current.get(item.id) ?? 0;
+    const next = prev + 1;
+    if (next < LEARN_STEPS_MS.length) {
+      stepMapRef.current.set(item.id, next);
+      learningMapRef.current.set(item.id, {
+        item,
+        availableAt: now + LEARN_STEPS_MS[next],
+      });
+    } else {
+      // Graduated from learning steps
+      stepMapRef.current.delete(item.id);
+      learningMapRef.current.delete(item.id);
+    }
+  }
+
+  function insertDueLearningItems() {
+    const now = Date.now();
+    const due: Array<{ id: string; item: JapaneseDoc }> = [];
+    learningMapRef.current.forEach((entry, id) => {
+      if (entry.availableAt <= now) due.push({ id, item: entry.item });
+    });
+    if (due.length === 0) return;
+    setItems((prev) => {
+      const copy = [...prev];
+      const insertAt = Math.min(currentRef.current + 1, copy.length);
+      for (const d of due) {
+        // If the card exists ahead in the queue, move it forward near insertAt
+        const existingIdx = copy.findIndex(
+          (x, idx) => idx >= insertAt && (x as any).id === d.item.id
+        );
+        if (existingIdx !== -1) {
+          const [moved] = copy.splice(existingIdx, 1);
+          copy.splice(insertAt, 0, moved as any);
+        } else {
+          copy.splice(insertAt, 0, d.item as any);
+        }
+        learningMapRef.current.delete(d.id);
+      }
+      return copy;
+    });
+  }
 
   function advanceAfter(ms: number) {
     setIsAdvancing(true);
@@ -203,6 +282,7 @@ export function LearnPage() {
         }
         return next;
       });
+      insertDueLearningItems();
       // Clear any active quiz state when moving on
       setQuiz(null);
       setQuizSelected(null);
@@ -442,6 +522,25 @@ export function LearnPage() {
         ? emojiCode("good")
         : emojiCode("easy");
     setFeedback({ key: `${Date.now()}`, code: cp, until: Date.now() + 1200 });
+
+    // Session-level relearn scheduling (insert near-future slots)
+    if (currentItem && currentItem.id) {
+      if (rating === "again") {
+        scheduleRelearn(currentItem, "again");
+      } else if (rating === "hard") {
+        scheduleRelearn(currentItem, "hard");
+      } else if (rating === "good") {
+        // Progress learning step on Good, or clear if finished
+        scheduleNextLearningStep(currentItem);
+      } else if (rating === "easy") {
+        // Graduate from learning immediately
+        stepMapRef.current.delete(currentItem.id);
+        learningMapRef.current.delete(currentItem.id);
+      } else {
+        learningMapRef.current.delete(currentItem.id);
+      }
+    }
+
     advanceAfter(1200);
 
     // Maintain surprise pool immediately

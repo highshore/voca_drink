@@ -126,6 +126,17 @@ export const GlobalStyle = createGlobalStyle`
   .col-6 { grid-column: span 6; }
   .col-12 { grid-column: span 12; }
 
+  /* Responsive helpers */
+  @media (max-width: 900px) {
+    .col-4 { grid-column: span 6; }
+  }
+  @media (max-width: 640px) {
+    .grid { gap: 12px; }
+    .hero h1 { font-size: 32px; }
+    .container { padding: 0 14px; }
+    .col-6, .col-4 { grid-column: span 12; }
+  }
+
   .footer {
     border-top: 1px solid var(--border);
     padding: 20px 0;

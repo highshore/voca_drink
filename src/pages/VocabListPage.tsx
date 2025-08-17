@@ -100,7 +100,7 @@ export function VocabListPage() {
         {deckCount !== null && (
           <div style={{ color: "#64748b" }}>Words: {deckCount}</div>
         )}
-        <div style={s.grid12}>
+        <div style={{ ...s.grid12 }}>
           {items.map((v) => (
             <div key={v.id} style={colSpan(6)}>
               <div style={{ ...s.card, display: "flex", gap: 8 }}>

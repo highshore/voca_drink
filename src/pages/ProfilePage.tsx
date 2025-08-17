@@ -27,7 +27,10 @@ export function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [avatarURL, setAvatarURL] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [buddies, setBuddies] = useState<string[]>([]);
+  const [, setBuddies] = useState<string[] | null>(null);
+  const [buddyInfos, setBuddyInfos] = useState<
+    Array<{ uid: string; displayName: string | null; photoURL: string | null }>
+  >([]);
   const [newBuddy, setNewBuddy] = useState("");
   const [countryDial, setCountryDial] = useState<string>("+82");
   const [phone, setPhone] = useState("");
@@ -82,6 +85,30 @@ export function ProfilePage() {
       if (user && !cancelled) {
         const list = await getAccountabilityBuddies(user.uid);
         setBuddies(list);
+        // Fetch display names for buddies (tolerate permission errors)
+        try {
+          const results = await Promise.allSettled(
+            list.map((uid) => getUserProfile(uid))
+          );
+          const infos = list.map((uid, idx) => {
+            const r = results[idx];
+            if (r.status === "fulfilled" && r.value) {
+              return {
+                uid,
+                displayName: r.value.displayName ?? null,
+                photoURL: r.value.photoURL ?? null,
+              };
+            }
+            return { uid, displayName: null, photoURL: null };
+          });
+          if (!cancelled) setBuddyInfos(infos);
+        } catch (_) {
+          // On total failure, still show UIDs
+          if (!cancelled)
+            setBuddyInfos(
+              list.map((uid) => ({ uid, displayName: null, photoURL: null }))
+            );
+        }
         if (user.phoneNumber) {
           try {
             // Try to prefill country code if it matches known codes
@@ -130,14 +157,40 @@ export function ProfilePage() {
     const uidToAdd = newBuddy.trim();
     if (!uidToAdd) return;
     await addAccountabilityBuddy(user.uid, uidToAdd);
-    setBuddies((b) => (b.includes(uidToAdd) ? b : [...b, uidToAdd]));
+    setBuddies((b) => {
+      const cur = b ?? [];
+      return cur.includes(uidToAdd) ? cur : [...cur, uidToAdd];
+    });
+    let displayNameValue: string | null = null;
+    let photoValue: string | null = null;
+    try {
+      const p = await getUserProfile(uidToAdd);
+      displayNameValue = p?.displayName ?? null;
+      photoValue = p?.photoURL ?? null;
+    } catch (_) {
+      displayNameValue = null;
+      photoValue = null;
+    } finally {
+      setBuddyInfos((prev) => {
+        if (prev.find((x) => x.uid === uidToAdd)) return prev;
+        return [
+          ...prev,
+          {
+            uid: uidToAdd,
+            displayName: displayNameValue,
+            photoURL: photoValue,
+          },
+        ];
+      });
+    }
     setNewBuddy("");
   };
 
   const onRemoveBuddy = async (b: string) => {
     if (!user) return;
     await removeAccountabilityBuddy(user.uid, b);
-    setBuddies((list) => list.filter((x) => x !== b));
+    setBuddies((list) => (list ? list.filter((x) => x !== b) : list));
+    setBuddyInfos((list) => list.filter((x) => x.uid !== b));
   };
 
   const onStartPhoneVerification = async () => {
@@ -313,29 +366,68 @@ export function ProfilePage() {
                 }}
               />
               <button style={{ ...s.button }} onClick={onAddBuddy}>
-                Add
+                {t("profile.add")}
               </button>
             </div>
-            {buddies.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {buddies.map((b) => (
+            {buddyInfos.length > 0 && (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              >
+                {buddyInfos.map((b) => (
                   <div
-                    key={b}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 8,
-                      padding: "8px 12px",
-                    }}
+                    key={b.uid}
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
                   >
-                    <span style={{ fontFamily: "monospace" }}>{b}</span>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 8,
+                        padding: "4px 12px",
+                        height: 40,
+                        flex: 1,
+                      }}
+                    >
+                      <img
+                        src={b.photoURL || defaultUser}
+                        alt="avatar"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 999,
+                          objectFit: "cover",
+                          border: "1px solid #f1f5f9",
+                        }}
+                      />
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, color: "#334155" }}>
+                          {b.displayName || t("profile.noUsername")}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "monospace",
+                            fontSize: 12,
+                            color: "#64748b",
+                          }}
+                        >
+                          {b.uid}
+                        </span>
+                      </div>
+                    </div>
                     <button
                       style={{ ...s.button }}
-                      onClick={() => onRemoveBuddy(b)}
+                      onClick={() => onRemoveBuddy(b.uid)}
                     >
-                      Remove
+                      {t("profile.remove")}
                     </button>
                   </div>
                 ))}
@@ -344,7 +436,9 @@ export function ProfilePage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 13, color: "#64748b" }}>Phone number</span>
+            <span style={{ fontSize: 13, color: "#64748b" }}>
+              {t("profile.phoneNumber")}
+            </span>
             <div style={{ display: "flex", gap: 8 }}>
               <select
                 value={countryDial}
@@ -388,17 +482,24 @@ export function ProfilePage() {
                   onClick={onStartPhoneVerification}
                   disabled={!phone}
                 >
-                  Verify
+                  {t("profile.verify")}
                 </button>
               )}
             </div>
             {verifying && (
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
                 <input
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Code"
+                  placeholder={t("profile.codePlaceholder")}
                   style={{
                     border: "1px solid #e2e8f0",
                     borderRadius: 8,
@@ -412,7 +513,7 @@ export function ProfilePage() {
                   onClick={onConfirmCode}
                   disabled={!code}
                 >
-                  Confirm
+                  {t("profile.confirm")}
                 </button>
               </div>
             )}
@@ -444,7 +545,7 @@ export function ProfilePage() {
                     clipRule="evenodd"
                   />
                 </svg>
-                <span>Verified</span>
+                <span>{t("profile.verified")}</span>
               </div>
             )}
             <div id="recaptcha-container" />

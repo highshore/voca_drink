@@ -521,6 +521,36 @@ export async function getAccountabilityBuddies(uid: string): Promise<string[]> {
     : [];
 }
 
+// --- User Decks (My Decks) ---
+export async function getUserDeckIds(uid: string): Promise<string[]> {
+  const snap = await getDoc(userDocRef(uid));
+  if (!snap.exists()) return [];
+  const d = snap.data() as any;
+  const arr = d.myDecks;
+  return Array.isArray(arr)
+    ? arr.filter((x: any) => typeof x === "string")
+    : [];
+}
+
+export async function addUserDeck(uid: string, deckId: string): Promise<void> {
+  const ref = userDocRef(uid);
+  await updateDoc(ref, {
+    myDecks: arrayUnion(deckId),
+    lastLoginAt: serverTimestamp(),
+  });
+}
+
+export async function removeUserDeck(
+  uid: string,
+  deckId: string
+): Promise<void> {
+  const ref = userDocRef(uid);
+  await updateDoc(ref, {
+    myDecks: arrayRemove(deckId),
+    lastLoginAt: serverTimestamp(),
+  });
+}
+
 export async function addAccountabilityBuddy(
   uid: string,
   buddyUid: string
