@@ -10,8 +10,8 @@ function MiniStat({ label, value }: StatItem) {
         background: "#ffffff",
       }}
     >
-      <div style={{ fontSize: 14, color: "#64748b" }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800 }}>{value}</div>
+      <div style={{ fontSize: "0.875rem", color: "#64748b" }}>{label}</div>
+      <div style={{ fontSize: "1.25rem", fontWeight: 800 }}>{value}</div>
     </div>
   );
 }

@@ -8,30 +8,34 @@ export function StatsPanel({
   dailyGoal,
   daily,
   stats,
-  memorizedCount,
   deckTotal,
   itemsLoaded,
+  box1,
+  box2,
+  box3,
 }: {
   dailyGoal: number;
   daily: { reviewsToday: number; streakDays: number };
   stats: {
     dueNow: number;
     overdue: number;
-    todayAccuracy: number;
-    todayMix: { again: number; hard: number; good: number; easy: number };
-    retention7d: number;
-    medianStability: number;
-    difficultyMix: { low: number; mid: number; high: number };
-    forecast7d: number[];
   };
-  memorizedCount: number;
   deckTotal: number;
   itemsLoaded: number;
+  box1: string[];
+  box2: string[];
+  box3: string[];
 }) {
   const { t } = useI18n();
   return (
     <Panel>
-      <div style={{ fontWeight: 700, letterSpacing: "-0.01em", fontSize: 20 }}>
+      <div
+        style={{
+          fontWeight: 700,
+          letterSpacing: "-0.01em",
+          fontSize: "1.25rem",
+        }}
+      >
         {t("stats.progress")}
       </div>
       <StatGrid
@@ -46,77 +50,98 @@ export function StatsPanel({
           { label: t("stats.done"), value: daily.reviewsToday },
         ]}
       />
-      <StatGrid
-        columns={5}
-        items={[
-          { label: t("stats.again"), value: stats.todayMix.again },
-          { label: t("stats.hard"), value: stats.todayMix.hard },
-          { label: t("stats.good"), value: stats.todayMix.good },
-          { label: t("stats.easy"), value: stats.todayMix.easy },
-          {
-            label: t("stats.acc"),
-            value: `${Math.round(stats.todayAccuracy * 100)}%`,
-          },
-        ]}
-      />
-      <StatGrid
-        columns={3}
-        items={[
-          {
-            label: t("stats.ret7"),
-            value: `${Math.round(stats.retention7d * 100)}%`,
-          },
-          { label: t("stats.medS"), value: stats.medianStability.toFixed(2) },
-          { label: t("stats.mem"), value: `${memorizedCount}/${deckTotal}` },
-        ]}
-      />
-      <StatGrid
-        columns={3}
-        items={[
-          { label: "D≤4", value: stats.difficultyMix.low },
-          { label: "D4-7", value: stats.difficultyMix.mid },
-          { label: "D≥7", value: stats.difficultyMix.high },
-        ]}
-      />
-      {stats.forecast7d.length > 0 && (
+      <div style={{ marginTop: 10 }}>
         <div
           style={{
-            border: "1px solid #e2e8f0",
-            borderRadius: 12,
-            padding: 12,
-            background: "#ffffff",
+            fontWeight: 700,
+            fontSize: "0.875rem",
+            color: "#64748b",
+            marginBottom: 6,
           }}
         >
-          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 6 }}>
-            {t("stats.next7")}
+          Leitner boxes
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+          <div>
+            <div
+              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
+            >
+              Box 1 ({box1.length})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {box1.map((w) => (
+                <span
+                  key={`b1-${w}`}
+                  style={{
+                    fontSize: "0.75rem",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 999,
+                    padding: "4px 8px",
+                    background: "#f8fafc",
+                  }}
+                >
+                  {w}
+                </span>
+              ))}
+              {box1.length === 0 && (
+                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
+              )}
+            </div>
           </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 6,
-              alignItems: "flex-end",
-              height: 60,
-            }}
-          >
-            {stats.forecast7d.map((v, i) => {
-              const h = Math.max(4, Math.min(60, v * 3));
-              return (
-                <div key={i} style={{ textAlign: "center" }}>
-                  <div
-                    style={{
-                      width: 10,
-                      height: h,
-                      background: "#e2e8f0",
-                      borderRadius: 3,
-                    }}
-                  />
-                  <div style={{ fontSize: 10, marginTop: 4 }}>{v}</div>
-                </div>
-              );
-            })}
+          <div>
+            <div
+              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
+            >
+              Box 2 ({box2.length})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {box2.map((w) => (
+                <span
+                  key={`b2-${w}`}
+                  style={{
+                    fontSize: "0.75rem",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 999,
+                    padding: "4px 8px",
+                    background: "#f8fafc",
+                  }}
+                >
+                  {w}
+                </span>
+              ))}
+              {box2.length === 0 && (
+                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <div
+              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
+            >
+              Box 3 ({box3.length})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {box3.map((w) => (
+                <span
+                  key={`b3-${w}`}
+                  style={{
+                    fontSize: "0.75rem",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 999,
+                    padding: "4px 8px",
+                    background: "#f8fafc",
+                  }}
+                >
+                  {w}
+                </span>
+              ))}
+              {box3.length === 0 && (
+                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
       <StatGrid
         columns={3}
         items={[

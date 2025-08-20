@@ -7,39 +7,47 @@ import {
   limit,
   orderBy,
   query,
+  onSnapshot,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../auth/AuthContext";
 import {
   incrementReviewStats,
   setUserCurrentDeck,
-  updateSrsOnAnswer,
   recordReviewEvent,
   updateUserLastReview,
   incrementDeckReviewStats,
   type Rating,
 } from "../services/userService";
 import { useLocation, useNavigate } from "react-router-dom";
-import { s } from "../ui/layout";
+import { s, colors } from "../ui/layout";
 import { AnimatedEmoji, emojiCode } from "../ui/AnimatedEmoji";
-import { CardWrap, Panel } from "./learn/Styles";
+import {
+  PageGrid,
+  CardWrap,
+  Panel,
+  KanaRow,
+  Kana,
+  Kanji,
+} from "./learn/Styles";
 import { StatsPanel } from "./learn/StatsPanel";
 import { QuizCard } from "./learn/QuizCard";
-import { ReviewCard } from "./learn/ReviewCard";
 import { getDeckMetadata } from "../services/deckService";
 import {
   getTodayRatingDistribution,
   get7DayRetention,
 } from "../services/reviewStatsService";
+// Replace FSRS with Leitner
 import {
-  getDueVocabIdsForDeck,
-  countOverdueForDeck,
-  medianStabilityOfDue,
-  difficultyBucketsOfDue,
-  forecastCountsNext7Days,
-  getUpcomingVocabIdsForDeck,
-  updateFsrsOnAnswer,
-} from "../services/fsrsService";
+  getDueVocabIdsForDeck as getDueLeitner,
+  getUpcomingVocabIdsForDeck as getUpcomingLeitner,
+  updateLeitnerOnQuiz,
+  ensureLeitnerEntries,
+  countDueForDeck,
+  getBoxIds,
+  getLeitnerMapForDeck,
+} from "../services/leitnerService";
 import { getMemorizedSetForDeck } from "../services/userService";
 
 type JapaneseDoc = {
@@ -69,10 +77,7 @@ type McqQuiz =
       options: Array<{ text: string; isCorrect: boolean }>;
     };
 
-// Session-level relearning configuration to approximate Anki defaults:
-// Learning steps: 1m, 10m for "Again"; shorter delay for "Hard".
-const LEARN_STEPS_MS = [60_000, 10 * 60_000];
-const HARD_DELAY_MS = 90_000;
+// (unused) legacy session learning constants removed for Leitner
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -135,14 +140,14 @@ export function LearnPage() {
   const [items, setItems] = useState<JapaneseDoc[]>([]);
   const [current, setCurrent] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [showAnswer, setShowAnswer] = useState(false);
+  // no reveal state in quiz-only flow
+  const [showAnswer] = useState(false);
   const [daily, setDaily] = useState<{
     reviewsToday: number;
     streakDays: number;
   }>({ reviewsToday: 0, streakDays: 0 });
   const [deckTotal, setDeckTotal] = useState<number>(0);
   const [dailyGoal, setDailyGoal] = useState<number>(20);
-  const [memorizedCount, setMemorizedCount] = useState<number>(0);
   const [stats, setStats] = useState<{
     dueNow: number;
     overdue: number;
@@ -165,7 +170,6 @@ export function LearnPage() {
     forecast7d: [],
   });
   const [surprisePool, setSurprisePool] = useState<JapaneseDoc[]>([]);
-  const surpriseEveryN = 5;
   const [quiz, setQuiz] = useState<McqQuiz | null>(null);
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
   // result is derived at selection time; no separate state needed
@@ -179,10 +183,13 @@ export function LearnPage() {
   const [isAdvancing, setIsAdvancing] = useState(false);
   const advanceTimer = useRef<number | null>(null);
   const currentRef = useRef<number>(0);
-  const learningMapRef = useRef<
-    Map<string, { item: JapaneseDoc; availableAt: number }>
-  >(new Map());
-  const stepMapRef = useRef<Map<string, number>>(new Map());
+  const leitnerMapRef = useRef<Map<string, { box: 1 | 2 | 3 }>>(new Map());
+  const [phase, setPhase] = useState<"quiz" | "emoji" | "meaning">("quiz");
+  const deckRef = useRef<string>("japanese");
+  const QUIZ_TIMEOUT_MS = 5000;
+  const [quizEndsAt, setQuizEndsAt] = useState<number | null>(null);
+  const [timeLeftSec, setTimeLeftSec] = useState<number>(5);
+  const [timerTotalSec, setTimerTotalSec] = useState<number>(5);
 
   // auto-clear feedback overlay
   useEffect(() => {
@@ -202,147 +209,332 @@ export function LearnPage() {
     currentRef.current = current;
   }, [current]);
 
-  function scheduleRelearn(item: JapaneseDoc, kind: "again" | "hard") {
-    if (!item || !item.id) return;
-    const now = Date.now();
-    if (kind === "again") {
-      // Reset to first learning step on Again
-      const stepIdx = 0;
-      const delay = LEARN_STEPS_MS[stepIdx];
-      learningMapRef.current.set(item.id, {
-        item,
-        availableAt: now + delay,
-      });
-      stepMapRef.current.set(item.id, stepIdx);
-    } else if (kind === "hard") {
-      learningMapRef.current.set(item.id, {
-        item,
-        availableAt: now + HARD_DELAY_MS,
-      });
-    }
-  }
-
-  function scheduleNextLearningStep(item: JapaneseDoc) {
-    if (!item || !item.id) return;
-    const now = Date.now();
-    const prev = stepMapRef.current.get(item.id) ?? 0;
-    const next = prev + 1;
-    if (next < LEARN_STEPS_MS.length) {
-      stepMapRef.current.set(item.id, next);
-      learningMapRef.current.set(item.id, {
-        item,
-        availableAt: now + LEARN_STEPS_MS[next],
-      });
-    } else {
-      // Graduated from learning steps
-      stepMapRef.current.delete(item.id);
-      learningMapRef.current.delete(item.id);
-    }
-  }
-
-  function insertDueLearningItems() {
-    const now = Date.now();
-    const due: Array<{ id: string; item: JapaneseDoc }> = [];
-    learningMapRef.current.forEach((entry, id) => {
-      if (entry.availableAt <= now) due.push({ id, item: entry.item });
-    });
-    if (due.length === 0) return;
-    setItems((prev) => {
-      const copy = [...prev];
-      const insertAt = Math.min(currentRef.current + 1, copy.length);
-      for (const d of due) {
-        // If the card exists ahead in the queue, move it forward near insertAt
-        const existingIdx = copy.findIndex(
-          (x, idx) => idx >= insertAt && (x as any).id === d.item.id
-        );
-        if (existingIdx !== -1) {
-          const [moved] = copy.splice(existingIdx, 1);
-          copy.splice(insertAt, 0, moved as any);
-        } else {
-          copy.splice(insertAt, 0, d.item as any);
-        }
-        learningMapRef.current.delete(d.id);
-      }
-      return copy;
-    });
-  }
+  // no in-session relearn/insert with Leitner
 
   function advanceAfter(ms: number) {
     setIsAdvancing(true);
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     advanceTimer.current = window.setTimeout(() => {
-      setCurrent((n) => {
-        const next = (n + 1) % Math.max(1, items.length);
-        const index1Based = n + 1;
-        if (index1Based % surpriseEveryN === 0 && surprisePool.length > 5) {
-          const rnd = Math.floor(Math.random() * surprisePool.length);
-          const target = surprisePool[rnd];
-          const q = buildMcqFor(target, surprisePool);
-          if (q) setQuiz(q);
-        }
-        return next;
-      });
-      insertDueLearningItems();
-      // Clear any active quiz state when moving on
-      setQuiz(null);
+      setCurrent((n) => (n + 1) % Math.max(1, items.length));
+      // Clear any feedback state when moving on
       setQuizSelected(null);
       setFeedback(null);
+      setPhase("quiz");
       setIsAdvancing(false);
     }, Math.max(0, ms));
   }
+
+  // 5s timeout when in quiz phase and no selection
+  const quizTimeoutRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (quizTimeoutRef.current) {
+      window.clearTimeout(quizTimeoutRef.current);
+      quizTimeoutRef.current = null;
+    }
+    const item = items[current];
+    if (!item || phase !== "quiz" || quizSelected !== null) return;
+    // start per-question countdown
+    const ends = Date.now() + QUIZ_TIMEOUT_MS;
+    setQuizEndsAt(ends);
+    setTimerTotalSec(QUIZ_TIMEOUT_MS / 1000);
+    setTimeLeftSec(QUIZ_TIMEOUT_MS / 1000);
+    quizTimeoutRef.current = window.setTimeout(() => {
+      if (phase !== "quiz" || quizSelected !== null) return;
+      // mark incorrect, go to emoji then meaning
+      setQuizEndsAt(null);
+      setQuizSelected(-1 as any);
+      setPhase("emoji");
+      setFeedback({
+        key: `${Date.now()}`,
+        code: emojiCode("fail"),
+        until: Date.now() + 1000,
+      });
+      (async () => {
+        if (!user || !item.id) return;
+        try {
+          await incrementReviewStats(user.uid);
+        } catch (_) {}
+        try {
+          await recordReviewEvent(user.uid, deckRef.current, item.id, "again");
+          await updateUserLastReview(
+            user.uid,
+            deckRef.current,
+            item.id,
+            "again"
+          );
+          await incrementDeckReviewStats(user.uid, deckRef.current);
+        } catch (_) {}
+        try {
+          await updateLeitnerOnQuiz(user.uid, deckRef.current, item.id, false);
+        } catch (_) {}
+        try {
+          // optimistic local update of box chips
+          try {
+            const map = leitnerMapRef.current || new Map();
+            const prev = (map.get(item.id) as any)?.box ?? 1;
+            const next: 1 | 2 | 3 = Math.max(
+              1,
+              Math.min(3, (Number(prev) || 1) - 1)
+            ) as 1 | 2 | 3;
+            map.set(item.id, { box: next } as any);
+            leitnerMapRef.current = map as any;
+            const ids1: string[] = [];
+            const ids2: string[] = [];
+            const ids3: string[] = [];
+            (map as any as Map<string, { box: 1 | 2 | 3 }>).forEach((v, k) => {
+              if (v.box === 1) ids1.push(k);
+              else if (v.box === 2) ids2.push(k);
+              else ids3.push(k);
+            });
+            const nameOf = async (vid: string): Promise<string> => {
+              try {
+                const ref = doc(db, deckRef.current, vid);
+                const snap = await getDoc(ref);
+                if (snap.exists()) {
+                  const d = snap.data() as any;
+                  const word = `${d.kana}${
+                    d.kanji && d.kanji !== d.kana ? ` (${d.kanji})` : ""
+                  }`;
+                  return word;
+                }
+              } catch (_) {}
+              return vid;
+            };
+            const [w1, w2, w3] = await Promise.all([
+              Promise.all(ids1.slice(0, 30).map(nameOf)),
+              Promise.all(ids2.slice(0, 30).map(nameOf)),
+              Promise.all(ids3.slice(0, 30).map(nameOf)),
+            ]);
+            setBox1Words(w1);
+            setBox2Words(w2);
+            setBox3Words(w3);
+          } catch (_) {}
+
+          await refreshStats(user.uid, deckRef.current);
+        } catch (_) {}
+      })();
+      window.setTimeout(() => {
+        setFeedback(null);
+        setPhase("meaning");
+      }, 1000);
+    }, 5000) as any;
+    return () => {
+      if (quizTimeoutRef.current) window.clearTimeout(quizTimeoutRef.current);
+      quizTimeoutRef.current = null;
+      setQuizEndsAt(null);
+    };
+  }, [items, current, phase, quizSelected, user]);
+
+  // Update timer progress for quiz
+  useEffect(() => {
+    if (quizEndsAt == null) return;
+    const id = window.setInterval(() => {
+      const left = Math.max(0, (quizEndsAt - Date.now()) / 1000);
+      setTimeLeftSec(left);
+      if (left <= 0) {
+        window.clearInterval(id);
+      }
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [quizEndsAt]);
+
+  // Keyboard: when quiz open -> 1..4 selects option; four-choice rating disabled
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (phase === "meaning" && (e.code === "Space" || e.key === " ")) {
+        e.preventDefault();
+        setFeedback(null);
+        advanceAfter(0);
+      }
+      // numeric keys selection while in quiz
+      if (phase === "quiz" && quiz && ["1", "2", "3", "4"].includes(e.key)) {
+        e.preventDefault();
+        const idx = Number(e.key) - 1;
+        if (idx < 0 || idx >= 4) return;
+        if (isAdvancing || quizSelected !== null) return;
+        setQuizEndsAt(null);
+        setQuizSelected(idx);
+        setPhase("emoji");
+        const isCorrect = !!quiz.options[idx]?.isCorrect;
+        setFeedback({
+          key: `${Date.now()}`,
+          code: isCorrect ? emojiCode("success") : emojiCode("fail"),
+          until: Date.now() + 1000,
+        });
+        const item = items[current];
+        (async () => {
+          if (!user || !item?.id) return;
+          try {
+            await incrementReviewStats(user.uid);
+          } catch (_) {}
+          try {
+            await recordReviewEvent(
+              user.uid,
+              deckRef.current,
+              item.id,
+              isCorrect ? ("good" as Rating) : ("again" as Rating)
+            );
+            await updateUserLastReview(
+              user.uid,
+              deckRef.current,
+              item.id,
+              isCorrect ? ("good" as Rating) : ("again" as Rating)
+            );
+            await incrementDeckReviewStats(user.uid, deckRef.current);
+          } catch (_) {}
+          try {
+            await updateLeitnerOnQuiz(
+              user.uid,
+              deckRef.current,
+              item.id,
+              isCorrect
+            );
+          } catch (_) {}
+          try {
+            await refreshStats(user.uid, deckRef.current);
+          } catch (_) {}
+        })();
+        window.setTimeout(() => {
+          setFeedback(null);
+          setPhase("meaning");
+        }, 1000);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [phase, quiz, isAdvancing, quizSelected, user, items, current]);
+
   async function refreshStats(currentUid: string, currentDeck: string) {
     try {
-      const [mix, retention, overdue, forecast, medianS, diffMix, dueIds] =
-        await Promise.all([
-          getTodayRatingDistribution(currentUid, currentDeck),
-          get7DayRetention(currentUid, currentDeck),
-          countOverdueForDeck(currentUid, currentDeck),
-          forecastCountsNext7Days(currentUid, currentDeck),
-          medianStabilityOfDue(currentUid, currentDeck),
-          difficultyBucketsOfDue(currentUid, currentDeck),
-          getDueVocabIdsForDeck(currentUid, currentDeck, 50),
-        ]);
+      const [mix, retention, dueCount, b1, b2, b3, lmap] = await Promise.all([
+        getTodayRatingDistribution(currentUid, currentDeck),
+        get7DayRetention(currentUid, currentDeck),
+        countDueForDeck(currentUid, currentDeck),
+        getBoxIds(currentUid, currentDeck, 1, 30),
+        getBoxIds(currentUid, currentDeck, 2, 30),
+        getBoxIds(currentUid, currentDeck, 3, 30),
+        getLeitnerMapForDeck(currentUid, currentDeck),
+      ]);
       const totalToday = mix.again + mix.hard + mix.good + mix.easy;
       const todayAccuracy =
         totalToday > 0 ? (mix.hard + mix.good + mix.easy) / totalToday : 0;
       setStats((prev) => ({
         ...prev,
-        dueNow: dueIds.length,
-        overdue,
+        dueNow: dueCount,
+        overdue: 0,
         todayMix: mix,
         todayAccuracy,
         retention7d: retention,
-        forecast7d: forecast,
-        medianStability: medianS,
-        difficultyMix: diffMix,
+        forecast7d: [],
+        medianStability: 0,
+        difficultyMix: { low: 0, mid: 0, high: 0 },
       }));
+      // Load readable words for boxes
+      const nameOf = async (vid: string): Promise<string> => {
+        try {
+          const ref = doc(db, currentDeck, vid);
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const d = snap.data() as any;
+            const word = `${d.kana}${
+              d.kanji && d.kanji !== d.kana ? ` (${d.kanji})` : ""
+            }`;
+            return word;
+          }
+        } catch (_) {}
+        return vid;
+      };
+      const [w1, w2, w3] = await Promise.all([
+        Promise.all(b1.map(nameOf)),
+        Promise.all(b2.map(nameOf)),
+        Promise.all(b3.map(nameOf)),
+      ]);
+      setBox1Words(w1);
+      setBox2Words(w2);
+      setBox3Words(w3);
+      const m = new Map<string, { box: 1 | 2 | 3 }>();
+      (lmap as any as Map<string, any>).forEach((entry: any, vid: string) => {
+        m.set(vid, { box: (entry.box as 1 | 2 | 3) ?? 1 });
+      });
+      leitnerMapRef.current = m as any;
     } catch (_) {}
   }
-  const [isNarrow, setIsNarrow] = useState<boolean>(
-    typeof window !== "undefined" ? window.innerWidth < 900 : true
-  );
+  // responsive layout handled by CSS in PageGrid
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const deck = params.get("deck") || "japanese";
-
   useEffect(() => {
-    function onResize() {
-      setIsNarrow(window.innerWidth < 900);
-    }
-    if (typeof window !== "undefined") {
-      window.addEventListener("resize", onResize);
-      return () => window.removeEventListener("resize", onResize);
-    }
-  }, []);
+    deckRef.current = deck;
+  }, [deck]);
+
+  // no JS resize listener needed; styles are responsive
 
   const [deckTitle, setDeckTitle] = useState<string>("");
+  const [box1Words, setBox1Words] = useState<string[]>([]);
+  const [box2Words, setBox2Words] = useState<string[]>([]);
+  const [box3Words, setBox3Words] = useState<string[]>([]);
   const headline = useMemo(() => {
     if (isLoading) return "Loading";
     const base = user ? "Your queue" : "Public queue";
     return deckTitle ? `${deckTitle}` : `${base}`;
   }, [isLoading, user, deckTitle]);
 
+  useEffect(() => {
+    if (!user) return;
+    const qref = query(
+      collection(db, "users", user.uid, "leitner"),
+      where("deck", "==", deck)
+    );
+    const unsub = onSnapshot(qref, async (snap) => {
+      try {
+        const ids1: string[] = [];
+        const ids2: string[] = [];
+        const ids3: string[] = [];
+        let dueCount = 0;
+        const nowIso = new Date().toISOString();
+        const m = new Map<string, { box: 1 | 2 | 3 }>();
+        snap.forEach((d) => {
+          const e = d.data() as any;
+          const vid = e.vocabId as string;
+          const box = (Number(e.box) || 1) as 1 | 2 | 3;
+          if (typeof vid !== "string") return;
+          if (box === 1) ids1.push(vid);
+          else if (box === 2) ids2.push(vid);
+          else ids3.push(vid);
+          if (typeof e.dueAt === "string" && e.dueAt <= nowIso) dueCount += 1;
+          m.set(vid, { box });
+        });
+        // Update due count
+        setStats((prev) => ({ ...prev, dueNow: dueCount }));
+        // Update map ref
+        leitnerMapRef.current = m as any;
+        // Load readable words
+        const nameOf = async (vid: string): Promise<string> => {
+          try {
+            const ref = doc(db, deck, vid);
+            const snapDoc = await getDoc(ref);
+            if (snapDoc.exists()) {
+              const d = snapDoc.data() as any;
+              return `${d.kana}${
+                d.kanji && d.kanji !== d.kana ? ` (${d.kanji})` : ""
+              }`;
+            }
+          } catch (_) {}
+          return vid;
+        };
+        const [w1, w2, w3] = await Promise.all([
+          Promise.all(ids1.slice(0, 30).map(nameOf)),
+          Promise.all(ids2.slice(0, 30).map(nameOf)),
+          Promise.all(ids3.slice(0, 30).map(nameOf)),
+        ]);
+        setBox1Words(w1);
+        setBox2Words(w2);
+        setBox3Words(w3);
+      } catch (_) {}
+    });
+    return () => unsub();
+  }, [user, deck]);
   useEffect(() => {
     async function load() {
       if (deck !== "japanese") {
@@ -365,9 +557,9 @@ export function LearnPage() {
             setDailyGoal(Number(d.dailyGoal || 20));
           }
           // Coverage (memorized)
+          // memorized no longer used in panel
           try {
-            const mem = await getMemorizedSetForDeck(user.uid, deck);
-            setMemorizedCount(mem.size);
+            await getMemorizedSetForDeck(user.uid, deck);
           } catch (_) {}
           await refreshStats(user.uid, deck);
 
@@ -380,14 +572,34 @@ export function LearnPage() {
             }
           } catch (_) {}
 
-          // Try FSRS queue first: show due items first; if none, show upcoming soonest
+          // Leitner: ensure entries then load due or upcoming next
           try {
-            const dueIds = await getDueVocabIdsForDeck(user.uid, deck, 100);
+            // seed Leitner entries for the first 100 lexemes if needed
+            const seedQuery = query(
+              collection(db, deck),
+              orderBy("kana"),
+              limit(100)
+            );
+            const seedSnap = await getDocs(seedQuery);
+            const seedIds: string[] = [];
+            seedSnap.forEach((d) => {
+              if (
+                d.id === "metadata" ||
+                d.id === "meta" ||
+                d.id === "_meta" ||
+                d.id === "__meta__"
+              )
+                return;
+              seedIds.push(d.id);
+            });
+            await ensureLeitnerEntries(user.uid, deck, seedIds);
+
+            const dueIds = await getDueLeitner(user.uid, deck, 100);
             setStats((prev) => ({ ...prev, dueNow: dueIds.length }));
             const idsToFetch =
               dueIds.length > 0
                 ? dueIds
-                : await getUpcomingVocabIdsForDeck(user.uid, deck, 100);
+                : await getUpcomingLeitner(user.uid, deck, 100);
             if (idsToFetch.length > 0) {
               const docs: JapaneseDoc[] = [];
               for (const id of idsToFetch.slice(0, 50)) {
@@ -397,7 +609,7 @@ export function LearnPage() {
               }
               if (docs.length > 0) {
                 setItems(docs);
-                // Build surprise quiz pool from user's recent Easy/Good selections
+                // Build surprise pool as before (based on recent corrects)
                 try {
                   const { collection, orderBy, limit, query, getDocs } =
                     await import("firebase/firestore");
@@ -426,9 +638,7 @@ export function LearnPage() {
                 return;
               }
             }
-          } catch (_) {
-            // ignore FSRS errors and fall back to default loading
-          }
+          } catch (_) {}
         }
         const q = query(collection(db, deck), orderBy("kana"), limit(50));
         const snap = await getDocs(q);
@@ -479,215 +689,58 @@ export function LearnPage() {
     load();
   }, [deck, navigate, user]);
 
-  // Reset card state when current changes
+  // After items/current load, build a quiz if needed
   useEffect(() => {
-    setShowAnswer(false);
-  }, [current]);
-
-  // Reveal answer on Space key (disabled during advancing)
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.code === "Space" || e.key === " ") {
-        if (!showAnswer && !isAdvancing && !quiz) {
-          e.preventDefault();
-          setShowAnswer(true);
-        }
-      }
+    const base = items[current];
+    if (!base) return;
+    // only regenerate on entering quiz phase or when no quiz exists
+    const pool = items.length >= 4 ? items : [...items, ...surprisePool];
+    const q = buildMcqFor(base, pool);
+    if (q && (phase === "quiz" || !quiz)) {
+      setQuiz(q);
+      setQuizSelected(null);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showAnswer, isAdvancing, quiz]);
+  }, [items, current, surprisePool, phase]);
 
-  const onRate = async (rating: Rating) => {
-    if (isAdvancing) return;
-    if (!user) return;
-    const currentItem = items[current];
+  // no reveal behavior in quiz-only flow
 
-    // Immediate UI updates
-    setDaily((d) => ({ ...d, reviewsToday: d.reviewsToday + 1 }));
-    setStats((prev) => {
-      const mix = { ...prev.todayMix } as any;
-      mix[rating] = (mix[rating] || 0) + 1;
-      const total = mix.again + mix.hard + mix.good + mix.easy;
-      const acc = total > 0 ? (mix.hard + mix.good + mix.easy) / total : 0;
-      const dueNow = Math.max(0, prev.dueNow - 1);
-      return { ...prev, todayMix: mix, todayAccuracy: acc, dueNow };
-    });
-    const cp =
-      rating === "again"
-        ? emojiCode("again")
-        : rating === "hard"
-        ? emojiCode("hard")
-        : rating === "good"
-        ? emojiCode("good")
-        : emojiCode("easy");
-    setFeedback({ key: `${Date.now()}`, code: cp, until: Date.now() + 1200 });
-
-    // Session-level relearn scheduling (insert near-future slots)
-    if (currentItem && currentItem.id) {
-      if (rating === "again") {
-        scheduleRelearn(currentItem, "again");
-      } else if (rating === "hard") {
-        scheduleRelearn(currentItem, "hard");
-      } else if (rating === "good") {
-        // Progress learning step on Good, or clear if finished
-        scheduleNextLearningStep(currentItem);
-      } else if (rating === "easy") {
-        // Graduate from learning immediately
-        stepMapRef.current.delete(currentItem.id);
-        learningMapRef.current.delete(currentItem.id);
-      } else {
-        learningMapRef.current.delete(currentItem.id);
-      }
-    }
-
-    advanceAfter(1200);
-
-    // Maintain surprise pool immediately
-    if (currentItem && currentItem.id) {
-      if (rating === "good" || rating === "easy") {
-        setSurprisePool((pool) => {
-          if (pool.find((p) => p.id === currentItem.id)) return pool;
-          return [{ ...currentItem }, ...pool].slice(0, 200);
-        });
-      } else {
-        setSurprisePool((pool) => pool.filter((p) => p.id !== currentItem.id));
-      }
-    }
-
-    // Background operations (non-blocking)
-    (async () => {
-      try {
-        await incrementReviewStats(user.uid);
-      } catch (_) {}
-      if (currentItem && currentItem.id) {
-        try {
-          await updateSrsOnAnswer(user.uid, deck, currentItem.id, rating);
-        } catch (_) {}
-        try {
-          await updateFsrsOnAnswer(user.uid, deck, currentItem.id, rating, 0.9);
-        } catch (_) {}
-        try {
-          await recordReviewEvent(user.uid, deck, currentItem.id, rating);
-          await updateUserLastReview(user.uid, deck, currentItem.id, rating);
-          await incrementDeckReviewStats(user.uid, deck);
-        } catch (_) {}
-        try {
-          // Demote if from surprise pool and failed
-          if (rating === "again" || rating === "hard") {
-            const wasInPool = surprisePool.find((p) => p.id === currentItem.id);
-            if (wasInPool) {
-              const demoted: Rating = "hard";
-              try {
-                await updateSrsOnAnswer(
-                  user.uid,
-                  deck,
-                  currentItem.id,
-                  demoted
-                );
-              } catch (_) {}
-              try {
-                await updateFsrsOnAnswer(
-                  user.uid,
-                  deck,
-                  currentItem.id,
-                  demoted,
-                  0.9
-                );
-              } catch (_) {}
-            }
-          }
-        } catch (_) {}
-      }
-      try {
-        await refreshStats(user.uid, deck);
-      } catch (_) {}
-    })();
+  // With Leitner, we no longer expose self-rated 4-button answers.
+  const onRate = async (_rating: Rating) => {
+    // disabled path; quizzes will handle promotion/demotion
   };
 
-  // Keyboard: when quiz open -> 1..4 selects option; otherwise ratings after reveal (disabled during advancing)
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (quiz) {
-        if (["1", "2", "3", "4"].includes(e.key)) {
-          e.preventDefault();
-          const idx = Number(e.key) - 1;
-          if (idx >= 0 && idx < 4) {
-            if (isAdvancing || quizSelected !== null) return;
-            setQuizSelected(idx);
-            const isCorrect = quiz.options[idx]?.isCorrect;
-            const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
-            setFeedback({
-              key: `${Date.now()}`,
-              code: cp,
-              until: Date.now() + 1400,
-            });
-            // optional demotion on wrong answer
-            if (!isCorrect && user) {
-              const demoted: Rating = "hard";
-              updateSrsOnAnswer(user.uid, deck, quiz.cardId, demoted).catch(
-                () => {}
-              );
-              updateFsrsOnAnswer(
-                user.uid!,
-                deck,
-                quiz.cardId,
-                demoted,
-                0.9
-              ).catch(() => {});
-            }
-            advanceAfter(1400);
-          }
-        }
-        return;
-      }
-      if (!showAnswer || isAdvancing) return;
-      if (e.key === "1") {
-        e.preventDefault();
-        onRate("again");
-      } else if (e.key === "2") {
-        e.preventDefault();
-        onRate("hard");
-      } else if (e.key === "3") {
-        e.preventDefault();
-        onRate("good");
-      } else if (e.key === "4") {
-        e.preventDefault();
-        onRate("easy");
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showAnswer, onRate, quiz, isAdvancing, quizSelected, user, deck]);
+  // (removed) duplicate keyboard handler to avoid double-processing
 
   return (
     <div style={{ ...s.container }}>
-      <h2 style={{ margin: 0, marginBottom: 16, ...s.gradientTitle }}>
+      <h2
+        style={{
+          margin: 0,
+          marginBottom: 20,
+          fontSize: "1.5rem",
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          color: colors.text,
+        }}
+      >
         {headline}
       </h2>
       {error && (
         <div
           style={{
-            border: "1px solid #e2e8f0",
+            border: `1px solid ${colors.border}`,
+            borderLeft: `4px solid ${colors.brand}`,
             borderRadius: 12,
             padding: 12,
             background: "#fff7ed",
             color: "#9a3412",
-            marginBottom: 12,
+            marginBottom: 16,
           }}
         >
           {error}
         </div>
       )}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: isNarrow ? "1fr" : "2fr 1fr",
-          gap: 16,
-          alignItems: "stretch",
-          width: "100%",
-        }}
-      >
+      <PageGrid>
         <CardWrap>
           {/* Overlay feedback emoji */}
           {feedback && feedback.until > Date.now() && (
@@ -706,45 +759,261 @@ export function LearnPage() {
           )}
           {isAdvancing ? (
             <Panel style={{ minHeight: 420 }} />
+          ) : phase === "emoji" ? (
+            <Panel style={{ minHeight: 420 }} />
+          ) : phase === "meaning" ? (
+            (() => {
+              const base = items[current] || ({} as JapaneseDoc);
+              const pool =
+                items.length >= 4 ? items : [...items, ...surprisePool];
+              const q = buildMcqFor(base, pool);
+              if (!q) {
+                return (
+                  <Panel
+                    style={{
+                      minHeight: 420,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div style={{ color: "#64748b" }}>Preparing quiz…</div>
+                  </Panel>
+                );
+              }
+              return (
+                <QuizCard
+                  quiz={q}
+                  selected={quizSelected}
+                  onSelect={() => {}}
+                  hideOptions
+                  hidePrompt
+                >
+                  {phase === "meaning" && items[current] && (
+                    <div style={{ marginTop: 16 }}>
+                      {(() => {
+                        const it = items[current];
+                        if (!it) return null;
+                        const hasKanji = it.kanji && it.kanji !== it.kana;
+                        return (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 14,
+                            }}
+                          >
+                            <KanaRow>
+                              <Kana>{it.kana}</Kana>
+                              {hasKanji && <Kanji>{it.kanji}</Kanji>}
+                            </KanaRow>
+                            <div
+                              style={{
+                                textAlign: "center",
+                                fontSize: "1.25rem",
+                                fontWeight: 700,
+                                letterSpacing: "-0.01em",
+                              }}
+                            >
+                              {it.meanings?.ko}
+                            </div>
+                            {it.examples && it.examples.length > 0 && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 12,
+                                }}
+                              >
+                                {it.examples.map((ex, i) => (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      color: "#334155",
+                                      textAlign: "center",
+                                      padding: 16,
+                                      background: "#f8fafc",
+                                      borderRadius: 12,
+                                      border: `1px solid ${colors.border}`,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontWeight: 600,
+                                        fontSize: "1.125rem",
+                                        marginBottom: 4,
+                                      }}
+                                    >
+                                      {ex.sentence}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: "0.9375rem",
+                                        color: "#64748b",
+                                        marginBottom: 2,
+                                      }}
+                                    >
+                                      {ex.pronunciation}
+                                    </div>
+                                    <div style={{ fontSize: "1rem" }}>
+                                      {ex.translation?.ko}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "center",
+                                marginTop: 12,
+                              }}
+                            >
+                              <button
+                                onClick={() => {
+                                  setFeedback(null);
+                                  advanceAfter(0);
+                                }}
+                                style={{
+                                  ...s.button,
+                                  ...s.buttonBrand,
+                                  fontSize: "1rem",
+                                  padding: "10px 16px",
+                                }}
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </QuizCard>
+              );
+            })()
           ) : quiz ? (
             <QuizCard
-              quiz={quiz}
+              quiz={quiz!}
               selected={quizSelected}
+              timeLeftSec={
+                typeof timeLeftSec === "number" ? timeLeftSec : undefined
+              }
+              timerTotalSec={timerTotalSec}
               onSelect={(i) => {
                 if (quizSelected !== null) return;
                 if (isAdvancing) return;
+                setQuizEndsAt(null);
                 setQuizSelected(i);
+                setPhase("emoji");
                 const isCorrect = quiz.options[i]?.isCorrect;
                 const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
                 setFeedback({
                   key: `${Date.now()}`,
                   code: cp,
-                  until: Date.now() + 1400,
+                  until: Date.now() + 1000,
                 });
-                // hold showing the next state until the emoji is done
-                advanceAfter(1400);
+                const item = items[current];
+                (async () => {
+                  if (!user || !item?.id) return;
+                  try {
+                    await incrementReviewStats(user.uid);
+                  } catch (_) {}
+                  try {
+                    await recordReviewEvent(
+                      user.uid,
+                      deckRef.current,
+                      item.id,
+                      isCorrect ? ("good" as Rating) : ("again" as Rating)
+                    );
+                    await updateUserLastReview(
+                      user.uid,
+                      deckRef.current,
+                      item.id,
+                      isCorrect ? ("good" as Rating) : ("again" as Rating)
+                    );
+                    await incrementDeckReviewStats(user.uid, deckRef.current);
+                  } catch (_) {}
+                  try {
+                    await updateLeitnerOnQuiz(
+                      user.uid,
+                      deckRef.current,
+                      item.id,
+                      !!isCorrect
+                    );
+                  } catch (_) {}
+                  try {
+                    // optimistic local update of box chips
+                    try {
+                      const map = leitnerMapRef.current || new Map();
+                      const prev = (map.get(item.id) as any)?.box ?? 1;
+                      const delta = isCorrect ? 1 : -1;
+                      const next: 1 | 2 | 3 = Math.max(
+                        1,
+                        Math.min(3, (Number(prev) || 1) + delta)
+                      ) as 1 | 2 | 3;
+                      map.set(item.id, { box: next } as any);
+                      leitnerMapRef.current = map as any;
+                      const ids1: string[] = [];
+                      const ids2: string[] = [];
+                      const ids3: string[] = [];
+                      (map as any as Map<string, { box: 1 | 2 | 3 }>).forEach(
+                        (v, k) => {
+                          if (v.box === 1) ids1.push(k);
+                          else if (v.box === 2) ids2.push(k);
+                          else ids3.push(k);
+                        }
+                      );
+                      const nameOf = async (vid: string): Promise<string> => {
+                        try {
+                          const ref = doc(db, deckRef.current, vid);
+                          const snap = await getDoc(ref);
+                          if (snap.exists()) {
+                            const d = snap.data() as any;
+                            const word = `${d.kana}${
+                              d.kanji && d.kanji !== d.kana
+                                ? ` (${d.kanji})`
+                                : ""
+                            }`;
+                            return word;
+                          }
+                        } catch (_) {}
+                        return vid;
+                      };
+                      const [w1, w2, w3] = await Promise.all([
+                        Promise.all(ids1.slice(0, 30).map(nameOf)),
+                        Promise.all(ids2.slice(0, 30).map(nameOf)),
+                        Promise.all(ids3.slice(0, 30).map(nameOf)),
+                      ]);
+                      setBox1Words(w1);
+                      setBox2Words(w2);
+                      setBox3Words(w3);
+                    } catch (_) {}
+
+                    await refreshStats(user.uid, deckRef.current);
+                  } catch (_) {}
+                })();
+                window.setTimeout(() => {
+                  setFeedback(null);
+                  setPhase("meaning");
+                }, 1000);
               }}
             />
-          ) : (
-            <ReviewCard
-              item={items[current] || ({} as JapaneseDoc)}
-              showAnswer={showAnswer}
-              onShow={() => setShowAnswer(true)}
-              onRate={onRate}
-            />
-          )}
+          ) : null}
         </CardWrap>
         <aside style={{ minHeight: 420, display: "flex", width: "100%" }}>
           <StatsPanel
             dailyGoal={dailyGoal}
             daily={daily}
             stats={stats as any}
-            memorizedCount={memorizedCount}
             deckTotal={deckTotal}
             itemsLoaded={items.length}
+            box1={box1Words}
+            box2={box2Words}
+            box3={box3Words}
           />
         </aside>
-      </div>
+      </PageGrid>
     </div>
   );
 }

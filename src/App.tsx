@@ -11,6 +11,7 @@ import { DecksPage } from "./pages/DecksPage";
 import { VocabListPage } from "./pages/VocabListPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { VocabDetailPage } from "./pages/VocabDetailPage";
+import { VeoVideoPage } from "./pages/VeoVideoPage";
 
 function App() {
   const router = useMemo(
@@ -57,6 +58,7 @@ function App() {
               ),
             },
             { path: "login", element: <LoginPage /> },
+            { path: "veo", element: <VeoVideoPage /> },
           ],
         },
       ]),

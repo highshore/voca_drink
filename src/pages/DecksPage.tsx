@@ -35,10 +35,7 @@ export function DecksPage() {
     };
   }, [user]);
 
-  const otherDecks = useMemo(
-    () => allDecks.filter((d) => !myDecks.includes(d.id)),
-    [allDecks, myDecks]
-  );
+  const otherDecks = useMemo(() => allDecks, [allDecks]);
 
   return (
     <div style={s.container}>
@@ -203,8 +200,26 @@ export function DecksPage() {
                       {d.title}
                     </div>
                   </div>
-                  <div style={{ color: "#64748b", fontSize: 12 }}>
-                    {d.sizeHint}
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <div style={{ color: "#64748b", fontSize: 12 }}>
+                      {d.sizeHint}
+                    </div>
+                    {myDecks.includes(d.id) && (
+                      <span
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 999,
+                          padding: "2px 8px",
+                          fontSize: 12,
+                          color: "#0f172a",
+                          background: "#f8fafc",
+                        }}
+                      >
+                        Added
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ padding: 16, color: "#475569" }}>
@@ -219,7 +234,7 @@ export function DecksPage() {
                     justifyContent: "flex-end",
                   }}
                 >
-                  {user && (
+                  {user && !myDecks.includes(d.id) && (
                     <button
                       style={s.button}
                       onClick={async () => {

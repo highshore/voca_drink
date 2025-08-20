@@ -10,16 +10,13 @@ React + TypeScript + Vite app with Firestore and FSRS scheduling.
 - `npm run lint`: Run ESLint
 - `npm run seed:japanese`: Import vocabulary from `japanese.csv`
 - `npm run count:japanese`: Count rows in `japanese.csv`
-- `node scripts/fsrs-export-logs.mjs --uid=USER_ID [--out=fsrs-review-logs.json]`: Export review logs for FSRS optimization
 
-## FSRS Scheduler (Beta)
+## Spaced Repetition
 
-This project includes an FSRS-4.5-based scheduler in `src/fsrs/`. When you rate in `LearnPage`, we persist both the legacy SRS (`users/{uid}/srs`) and FSRS (`users/{uid}/fsrs`). The Learn queue prefers FSRS due cards if available.
+We use a 3-box Leitner system stored under `users/{uid}/leitner`:
 
-Files:
+- Box 1: review every 1 day
+- Box 2: every 3 days
+- Box 3: every 5 days
 
-- `src/fsrs/types.ts`: core types
-- `src/fsrs/params.ts`: default parameters
-- `src/fsrs/scheduler.ts`: schedule logic and forgetting curve
-- `src/fsrs/optimizer.ts`: simulation and placeholder optimizer
-- `src/services/fsrsService.ts`: Firestore integration (entries, due selection, per-user params)
+When the user answers an MCQ correctly, the card is promoted by one box (max 3); on incorrect, demoted by one box (min 1). Scheduling is persisted with `dueAt` timestamps. See `src/services/leitnerService.ts`.

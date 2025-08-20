@@ -96,7 +96,7 @@ export function ReviewCard({
           >
             <div
               style={{
-                fontSize: 22,
+                fontSize: "1.375rem",
                 fontWeight: 600,
                 textAlign: "center",
                 willChange: "transform",
@@ -118,7 +118,7 @@ export function ReviewCard({
                   <span
                     key={i}
                     style={{
-                      fontSize: 13,
+                      fontSize: "0.8125rem",
                       padding: "6px 12px",
                       border: "1px solid #e2e8f0",
                       borderRadius: 999,
@@ -152,20 +152,26 @@ export function ReviewCard({
                     }}
                   >
                     <div
-                      style={{ fontWeight: 600, fontSize: 17, marginBottom: 6 }}
+                      style={{
+                        fontWeight: 600,
+                        fontSize: "1.0625rem",
+                        marginBottom: 6,
+                      }}
                     >
                       {ex.sentence}
                     </div>
                     <div
                       style={{
-                        fontSize: 15,
+                        fontSize: "0.9375rem",
                         color: "#64748b",
                         marginBottom: 2,
                       }}
                     >
                       {ex.pronunciation}
                     </div>
-                    <div style={{ fontSize: 15 }}>{ex.translation?.ko}</div>
+                    <div style={{ fontSize: "0.9375rem" }}>
+                      {ex.translation?.ko}
+                    </div>
                   </div>
                 ))}
               </div>

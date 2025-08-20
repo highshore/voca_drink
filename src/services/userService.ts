@@ -244,33 +244,24 @@ export async function setUserCurrentDeck(
 }
 
 // --- SRS Scheduling (Anki-like) ---
+// Legacy SRS kept for backwards compatibility of types, but not used by Learn flow
 export type SrsStage = "new" | "learning" | "review" | "relearning";
 export type SrsEntry = {
   deck: string;
   vocabId: string;
-  easeFactor: number; // EF, e.g., 2.5
-  intervalDays: number; // interval in days for review cards
-  repetitions: number; // successful reviews in a row
-  dueAt: string; // ISO date string
+  easeFactor: number;
+  intervalDays: number;
+  repetitions: number;
+  dueAt: string;
   stage: SrsStage;
-  stepIndex?: number; // for learning/relearning
-  prevIntervalDays?: number; // for lapses
-  lastReviewedAt?: string; // ISO date
+  stepIndex?: number;
+  prevIntervalDays?: number;
+  lastReviewedAt?: string;
   createdAt?: any;
   updatedAt?: any;
 };
 
-const DEFAULT_DECK_OPTS = {
-  learningStepsMinutes: [1, 10],
-  relearnStepsMinutes: [10],
-  graduatingIntervalDays: 1,
-  easyInitialIntervalDays: 4,
-  hardIntervalFactor: 1.2,
-  easyBonus: 1.3,
-  intervalModifier: 1.0,
-  minEaseFactor: 1.3,
-  lapseNewIntervalFactor: 0.0, // on lapse, when graduating from relearn, multiply previous interval
-};
+// Legacy defaults removed (no longer used)
 
 export async function getSrsMapForDeck(
   uid: string,
@@ -287,17 +278,17 @@ export async function getSrsMapForDeck(
   return map;
 }
 
-function addDays(base: Date, days: number): Date {
-  const d = new Date(base.getTime());
-  d.setDate(d.getDate() + days);
-  return d;
-}
+// function addDays(base: Date, days: number): Date {
+//   const d = new Date(base.getTime());
+//   d.setDate(d.getDate() + days);
+//   return d;
+// }
 
-function minutesFromNow(minutes: number): Date {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() + minutes);
-  return d;
-}
+// function minutesFromNow(minutes: number): Date {
+//   const d = new Date();
+//   d.setMinutes(d.getMinutes() + minutes);
+//   return d;
+// }
 
 export type Rating = "again" | "hard" | "good" | "easy";
 
@@ -305,157 +296,25 @@ export async function updateSrsOnAnswer(
   uid: string,
   deck: string,
   vocabId: string,
-  rating: Rating
+  _rating: Rating
 ): Promise<SrsEntry> {
+  // No-op in new Leitner flow; keep function to avoid breaking imports.
   const id = `${deck}:${vocabId}`;
   const ref = doc(db, "users", uid, "srs", id);
-  const snap = await getDoc(ref);
   const now = new Date();
-
-  let entry: SrsEntry;
-  if (snap.exists()) {
-    entry = snap.data() as SrsEntry;
-  } else {
-    entry = {
-      deck,
-      vocabId,
-      easeFactor: 2.5,
-      intervalDays: 0,
-      repetitions: 0,
-      stage: "new",
-      stepIndex: 0,
-      dueAt: now.toISOString(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    } as unknown as SrsEntry;
-  }
-
-  const opts = DEFAULT_DECK_OPTS;
-
-  // Learning/Relearning flow mimicking Anki
-  if (entry.stage === "new" || entry.stage === "learning") {
-    // Treat as learning steps
-    const steps = opts.learningStepsMinutes;
-    let idx = entry.stepIndex ?? 0;
-    if (rating === "again") {
-      idx = 0;
-      entry.stage = "learning";
-      entry.stepIndex = idx;
-      entry.dueAt = minutesFromNow(steps[idx]).toISOString();
-    } else if (rating === "hard") {
-      // repeat current step (average of again/good)
-      entry.stage = "learning";
-      entry.stepIndex = idx;
-      entry.dueAt = minutesFromNow(
-        steps[Math.min(idx, steps.length - 1)]
-      ).toISOString();
-    } else if (rating === "good") {
-      if (idx < steps.length - 1) {
-        idx += 1;
-        entry.stage = "learning";
-        entry.stepIndex = idx;
-        entry.dueAt = minutesFromNow(steps[idx]).toISOString();
-      } else {
-        // graduate
-        entry.stage = "review";
-        entry.stepIndex = undefined;
-        entry.intervalDays = opts.graduatingIntervalDays;
-        entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-      }
-    } else if (rating === "easy") {
-      // immediate graduation to review with easy initial interval
-      entry.stage = "review";
-      entry.stepIndex = undefined;
-      entry.intervalDays = opts.easyInitialIntervalDays;
-      entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-    }
-  } else if (entry.stage === "review") {
-    // Review scheduling
-    const efMin = opts.minEaseFactor;
-    if (rating === "again") {
-      // Lapse -> relearning
-      entry.easeFactor = Math.max(efMin, entry.easeFactor - 0.2);
-      entry.stage = "relearning";
-      entry.prevIntervalDays = entry.intervalDays;
-      entry.stepIndex = 0;
-      const step = opts.relearnStepsMinutes[0] ?? 10;
-      entry.dueAt = minutesFromNow(step).toISOString();
-    } else if (rating === "hard") {
-      entry.easeFactor = Math.max(efMin, entry.easeFactor - 0.15);
-      entry.intervalDays = Math.max(
-        1,
-        Math.round(
-          entry.intervalDays * opts.hardIntervalFactor * opts.intervalModifier
-        )
-      );
-      entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-    } else if (rating === "good") {
-      entry.intervalDays = Math.max(
-        1,
-        Math.round(
-          entry.intervalDays * entry.easeFactor * opts.intervalModifier
-        )
-      );
-      entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-    } else if (rating === "easy") {
-      entry.easeFactor = entry.easeFactor + 0.15;
-      entry.intervalDays = Math.max(
-        1,
-        Math.round(
-          entry.intervalDays *
-            entry.easeFactor *
-            opts.easyBonus *
-            opts.intervalModifier
-        )
-      );
-      entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-    }
-  } else if (entry.stage === "relearning") {
-    // Relearning steps; after finishing, apply lapse new interval factor
-    const steps = opts.relearnStepsMinutes;
-    let idx = entry.stepIndex ?? 0;
-    if (rating === "again") {
-      idx = 0;
-      entry.stepIndex = idx;
-      entry.dueAt = minutesFromNow(steps[idx]).toISOString();
-    } else if (rating === "hard") {
-      // repeat current relearn step
-      entry.stepIndex = idx;
-      entry.dueAt = minutesFromNow(
-        steps[Math.min(idx, steps.length - 1)]
-      ).toISOString();
-    } else if (rating === "good" || rating === "easy") {
-      if (idx < steps.length - 1) {
-        idx += 1;
-        entry.stepIndex = idx;
-        entry.dueAt = minutesFromNow(steps[idx]).toISOString();
-      } else {
-        // finish relearning -> back to review with new/lapse interval applied
-        const prev = entry.prevIntervalDays ?? 1;
-        const factor = rating === "easy" ? opts.easyBonus : 1.0;
-        const newIvl = Math.max(
-          1,
-          Math.round(prev * opts.lapseNewIntervalFactor * factor)
-        );
-        entry.intervalDays = newIvl;
-        entry.stage = "review";
-        entry.stepIndex = undefined;
-        entry.dueAt = addDays(now, entry.intervalDays).toISOString();
-      }
-    }
-  }
-
-  entry.lastReviewedAt = now.toISOString();
-
-  await setDoc(
-    ref,
-    {
-      ...entry,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-  return entry;
+  const base: SrsEntry = {
+    deck,
+    vocabId,
+    easeFactor: 2.5,
+    intervalDays: 0,
+    repetitions: 0,
+    stage: "new",
+    dueAt: now.toISOString(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  } as unknown as SrsEntry;
+  await setDoc(ref, base, { merge: true });
+  return base;
 }
 
 export async function recordReviewEvent(

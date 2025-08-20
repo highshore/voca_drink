@@ -79,10 +79,10 @@ function toIso(ts) {
 async function main() {
   const args = parseArgs(process.argv);
   const uid = args.uid;
-  const out = args.out || join(projectRoot, "fsrs-review-logs.json");
+  const out = args.out || join(projectRoot, "leitner-review-logs.json");
   if (!uid) {
     console.error(
-      "Usage: node scripts/fsrs-export-logs.mjs --uid=USER_ID [--out=path.json]"
+      "Usage: node scripts/leitner-export-logs.mjs --uid=USER_ID [--out=path.json]"
     );
     process.exit(1);
   }

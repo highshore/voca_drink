@@ -69,7 +69,7 @@ export const s = {
     borderTop: `1px solid ${colors.border}`,
     padding: "20px 0",
     color: colors.muted,
-    fontSize: 14,
+    fontSize: "0.875rem",
   } as CSSProperties,
   button: {
     border: `1px solid ${colors.border}`,
@@ -77,7 +77,7 @@ export const s = {
     borderRadius: 8,
     background: colors.white,
     cursor: "pointer",
-    fontSize: 14,
+    fontSize: "0.875rem",
   } as CSSProperties,
   buttonBrand: {
     border: "none",
