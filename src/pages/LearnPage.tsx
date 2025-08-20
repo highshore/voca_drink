@@ -141,7 +141,6 @@ export function LearnPage() {
   const [current, setCurrent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // no reveal state in quiz-only flow
-  const [showAnswer] = useState(false);
   const [daily, setDaily] = useState<{
     reviewsToday: number;
     streakDays: number;
@@ -727,11 +726,6 @@ export function LearnPage() {
   }, [items, current, surprisePool, phase]);
 
   // no reveal behavior in quiz-only flow
-
-  // With Leitner, we no longer expose self-rated 4-button answers.
-  const onRate = async (_rating: Rating) => {
-    // disabled path; quizzes will handle promotion/demotion
-  };
 
   // (removed) duplicate keyboard handler to avoid double-processing
 
