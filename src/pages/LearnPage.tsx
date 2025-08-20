@@ -609,6 +609,18 @@ export function LearnPage() {
               }
               if (docs.length > 0) {
                 setItems(docs);
+                // Ensure Leitner entries exist for fetched docs
+                try {
+                  if (user) {
+                    await ensureLeitnerEntries(
+                      user.uid,
+                      deck,
+                      docs.map((d) => d.id!).filter(Boolean)
+                    );
+                  }
+                } catch (e) {
+                  console.error("[leitner] ensure for loaded docs failed", e);
+                }
                 // Build surprise pool as before (based on recent corrects)
                 try {
                   const { collection, orderBy, limit, query, getDocs } =
@@ -654,6 +666,18 @@ export function LearnPage() {
           list.push({ id: d.id, ...(d.data() as any) });
         });
         setItems(list);
+        // Ensure Leitner entries for visible list
+        try {
+          if (user) {
+            await ensureLeitnerEntries(
+              user.uid,
+              deck,
+              list.map((d) => d.id!).filter(Boolean)
+            );
+          }
+        } catch (e) {
+          console.error("[leitner] ensure for list failed", e);
+        }
         // Also build surprise pool even when not using FSRS due list
         try {
           if (user) {

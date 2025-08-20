@@ -15,11 +15,17 @@ dist-ssr
 # Firebase service account (never commit secrets)
 voca-drink-b5bb094bd3bd.json
 
+# Env files (never commit)
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+/.firebase
 *.suo
 *.ntvs*
 *.njsproj

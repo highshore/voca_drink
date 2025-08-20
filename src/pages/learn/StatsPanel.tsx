@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Panel } from "./Styles";
 import { StatGrid } from "./StatGrid";
 import { useI18n } from "../../i18n/I18nContext";
@@ -27,6 +28,75 @@ export function StatsPanel({
   box3: string[];
 }) {
   const { t } = useI18n();
+  const [maxChips, setMaxChips] = useState<number>(() => {
+    if (typeof window === "undefined") return 6;
+    const w = window.innerWidth;
+    if (w < 480) return 4;
+    if (w < 900) return 6;
+    return 8;
+  });
+
+  useEffect(() => {
+    function onResize() {
+      const w = window.innerWidth;
+      if (w < 480) setMaxChips(4);
+      else if (w < 900) setMaxChips(6);
+      else setMaxChips(8);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  function BoxRow({
+    label,
+    words,
+    max,
+  }: {
+    label: string;
+    words: string[];
+    max: number;
+  }) {
+    const chips = words.slice(0, max);
+    const truncated = words.length > max;
+    return (
+      <div>
+        <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>
+          {label} ({words.length})
+        </div>
+        {words.length === 0 ? (
+          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+            }}
+          >
+            {chips.map((w) => (
+              <span
+                key={w}
+                style={{
+                  fontSize: "0.75rem",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 999,
+                  padding: "4px 8px",
+                  background: "#f8fafc",
+                }}
+              >
+                {w}
+              </span>
+            ))}
+            {truncated && (
+              <span style={{ fontSize: "0.875rem", color: "#64748b" }}>…</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <Panel>
       <div
@@ -62,84 +132,9 @@ export function StatsPanel({
           Leitner boxes
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-          <div>
-            <div
-              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
-            >
-              Box 1 ({box1.length})
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {box1.map((w) => (
-                <span
-                  key={`b1-${w}`}
-                  style={{
-                    fontSize: "0.75rem",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 999,
-                    padding: "4px 8px",
-                    background: "#f8fafc",
-                  }}
-                >
-                  {w}
-                </span>
-              ))}
-              {box1.length === 0 && (
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
-              )}
-            </div>
-          </div>
-          <div>
-            <div
-              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
-            >
-              Box 2 ({box2.length})
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {box2.map((w) => (
-                <span
-                  key={`b2-${w}`}
-                  style={{
-                    fontSize: "0.75rem",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 999,
-                    padding: "4px 8px",
-                    background: "#f8fafc",
-                  }}
-                >
-                  {w}
-                </span>
-              ))}
-              {box2.length === 0 && (
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
-              )}
-            </div>
-          </div>
-          <div>
-            <div
-              style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}
-            >
-              Box 3 ({box3.length})
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {box3.map((w) => (
-                <span
-                  key={`b3-${w}`}
-                  style={{
-                    fontSize: "0.75rem",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 999,
-                    padding: "4px 8px",
-                    background: "#f8fafc",
-                  }}
-                >
-                  {w}
-                </span>
-              ))}
-              {box3.length === 0 && (
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
-              )}
-            </div>
-          </div>
+          <BoxRow label="Box 1" words={box1} max={maxChips} />
+          <BoxRow label="Box 2" words={box2} max={maxChips} />
+          <BoxRow label="Box 3" words={box3} max={maxChips} />
         </div>
       </div>
       <StatGrid

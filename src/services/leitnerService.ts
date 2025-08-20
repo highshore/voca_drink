@@ -8,6 +8,7 @@ import {
   where,
   limit as qlimit,
   setDoc,
+  updateDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -173,15 +174,22 @@ export async function updateLeitnerOnQuiz(
   entry.box = newBox;
   const days = BOX_INTERVAL_DAYS[newBox];
   entry.dueAt = addDays(now, days).toISOString();
-
-  await setDoc(
-    ref,
-    {
-      ...entry,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  // Persist exact fields to avoid accidentally persisting TS-only fields
+  const payload = {
+    deck: entry.deck,
+    vocabId: entry.vocabId,
+    box: entry.box,
+    dueAt: entry.dueAt,
+    createdAt: snap.exists()
+      ? snap.data()?.createdAt ?? serverTimestamp()
+      : serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  } as any;
+  if (snap.exists()) {
+    await updateDoc(ref, payload);
+  } else {
+    await setDoc(ref, payload, { merge: true });
+  }
   return entry;
 }
 
