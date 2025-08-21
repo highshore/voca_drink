@@ -2,7 +2,7 @@ import styled from "styled-components";
 
 export const PageGrid = styled.div`
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
   width: 100%;

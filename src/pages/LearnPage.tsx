@@ -22,7 +22,7 @@ import {
 } from "../services/userService";
 import { useLocation, useNavigate } from "react-router-dom";
 import { s, colors } from "../ui/layout";
-import { AnimatedEmoji, emojiCode } from "../ui/AnimatedEmoji";
+import { AnimatedEmoji, emojiCode, LottieByUrl } from "../ui/AnimatedEmoji";
 import {
   PageGrid,
   CardWrap,
@@ -169,6 +169,7 @@ export function LearnPage() {
     forecast7d: [],
   });
   const [surprisePool, setSurprisePool] = useState<JapaneseDoc[]>([]);
+  const [isPageLoading, setIsPageLoading] = useState<boolean>(true);
   const [quiz, setQuiz] = useState<McqQuiz | null>(null);
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
   // result is derived at selection time; no separate state needed
@@ -540,6 +541,7 @@ export function LearnPage() {
         navigate("/decks", { replace: true });
         return;
       }
+      setIsPageLoading(true);
       try {
         setError(null);
         if (user) {
@@ -709,7 +711,10 @@ export function LearnPage() {
         setItems([]);
       }
     }
-    load();
+    load().finally(() => {
+      // small delay to avoid flash of content
+      setTimeout(() => setIsPageLoading(false), 150);
+    });
   }, [deck, navigate, user]);
 
   // After items/current load, build a quiz if needed
@@ -731,307 +736,331 @@ export function LearnPage() {
 
   return (
     <div style={{ ...s.container }}>
-      <h2
-        style={{
-          margin: 0,
-          marginBottom: 20,
-          fontSize: "1.5rem",
-          fontWeight: 700,
-          letterSpacing: "-0.02em",
-          color: colors.text,
-        }}
-      >
-        {headline}
-      </h2>
-      {error && (
+      {isPageLoading ? (
         <div
           style={{
-            border: `1px solid ${colors.border}`,
-            borderLeft: `4px solid ${colors.brand}`,
-            borderRadius: 12,
-            padding: 12,
-            background: "#fff7ed",
-            color: "#9a3412",
-            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 520,
           }}
         >
-          {error}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <LottieByUrl
+              src="https://fonts.gstatic.com/s/e/notoemoji/latest/1fad7/lottie.json"
+              size={140}
+            />
+            <div style={{ color: "#64748b", fontWeight: 600 }}>Loading…</div>
+          </div>
         </div>
-      )}
-      <PageGrid>
-        <CardWrap>
-          {/* Overlay feedback emoji */}
-          {feedback && feedback.until > Date.now() && (
+      ) : (
+        <>
+          <h2
+            style={{
+              margin: 0,
+              marginBottom: 20,
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              letterSpacing: "-0.02em",
+              color: colors.text,
+            }}
+          >
+            {headline}
+          </h2>
+          {error && (
             <div
               style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                zIndex: 5,
-                pointerEvents: "none",
+                border: `1px solid ${colors.border}`,
+                borderLeft: `4px solid ${colors.brand}`,
+                borderRadius: 12,
+                padding: 12,
+                background: "#fff7ed",
+                color: "#9a3412",
+                marginBottom: 16,
               }}
             >
-              <AnimatedEmoji codepoint={feedback.code} size={120} />
+              {error}
             </div>
           )}
-          {isAdvancing ? (
-            <Panel style={{ minHeight: 420 }} />
-          ) : phase === "emoji" ? (
-            <Panel style={{ minHeight: 420 }} />
-          ) : phase === "meaning" ? (
-            (() => {
-              const base = items[current] || ({} as JapaneseDoc);
-              const pool =
-                items.length >= 4 ? items : [...items, ...surprisePool];
-              const q = buildMcqFor(base, pool);
-              if (!q) {
-                return (
-                  <Panel
-                    style={{
-                      minHeight: 420,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <div style={{ color: "#64748b" }}>Preparing quiz…</div>
-                  </Panel>
-                );
-              }
-              return (
-                <QuizCard
-                  quiz={q}
-                  selected={quizSelected}
-                  onSelect={() => {}}
-                  hideOptions
-                  hidePrompt
+          <PageGrid>
+            <CardWrap>
+              {/* Overlay feedback emoji */}
+              {feedback && feedback.until > Date.now() && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    zIndex: 5,
+                    pointerEvents: "none",
+                  }}
                 >
-                  {phase === "meaning" && items[current] && (
-                    <div style={{ marginTop: 16 }}>
-                      {(() => {
-                        const it = items[current];
-                        if (!it) return null;
-                        const hasKanji = it.kanji && it.kanji !== it.kana;
-                        return (
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 14,
-                            }}
-                          >
-                            <KanaRow>
-                              <Kana>{it.kana}</Kana>
-                              {hasKanji && <Kanji>{it.kanji}</Kanji>}
-                            </KanaRow>
-                            <div
-                              style={{
-                                textAlign: "center",
-                                fontSize: "1.25rem",
-                                fontWeight: 700,
-                                letterSpacing: "-0.01em",
-                              }}
-                            >
-                              {it.meanings?.ko}
-                            </div>
-                            {it.examples && it.examples.length > 0 && (
+                  <AnimatedEmoji codepoint={feedback.code} size={120} />
+                </div>
+              )}
+              {isAdvancing ? (
+                <Panel style={{ minHeight: 420 }} />
+              ) : phase === "emoji" ? (
+                <Panel style={{ minHeight: 420 }} />
+              ) : phase === "meaning" ? (
+                (() => {
+                  const base = items[current] || ({} as JapaneseDoc);
+                  const pool =
+                    items.length >= 4 ? items : [...items, ...surprisePool];
+                  const q = buildMcqFor(base, pool);
+                  if (!q) {
+                    return <Panel style={{ minHeight: 420 }} />;
+                  }
+                  return (
+                    <QuizCard
+                      quiz={q}
+                      selected={quizSelected}
+                      onSelect={() => {}}
+                      hideOptions
+                      hidePrompt
+                    >
+                      {phase === "meaning" && items[current] && (
+                        <div style={{ marginTop: 16 }}>
+                          {(() => {
+                            const it = items[current];
+                            if (!it) return null;
+                            const hasKanji = it.kanji && it.kanji !== it.kana;
+                            return (
                               <div
                                 style={{
                                   display: "flex",
                                   flexDirection: "column",
-                                  gap: 12,
+                                  gap: 14,
                                 }}
                               >
-                                {it.examples.map((ex, i) => (
+                                <KanaRow>
+                                  <Kana>{it.kana}</Kana>
+                                  {hasKanji && <Kanji>{it.kanji}</Kanji>}
+                                </KanaRow>
+                                <div
+                                  style={{
+                                    textAlign: "center",
+                                    fontSize: "1.25rem",
+                                    fontWeight: 700,
+                                    letterSpacing: "-0.01em",
+                                  }}
+                                >
+                                  {it.meanings?.ko}
+                                </div>
+                                {it.examples && it.examples.length > 0 && (
                                   <div
-                                    key={i}
                                     style={{
-                                      color: "#334155",
-                                      textAlign: "center",
-                                      padding: 16,
-                                      background: "#f8fafc",
-                                      borderRadius: 12,
-                                      border: `1px solid ${colors.border}`,
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 12,
                                     }}
                                   >
-                                    <div
-                                      style={{
-                                        fontWeight: 600,
-                                        fontSize: "1.125rem",
-                                        marginBottom: 4,
-                                      }}
-                                    >
-                                      {ex.sentence}
-                                    </div>
-                                    <div
-                                      style={{
-                                        fontSize: "0.9375rem",
-                                        color: "#64748b",
-                                        marginBottom: 2,
-                                      }}
-                                    >
-                                      {ex.pronunciation}
-                                    </div>
-                                    <div style={{ fontSize: "1rem" }}>
-                                      {ex.translation?.ko}
-                                    </div>
+                                    {it.examples.map((ex, i) => (
+                                      <div
+                                        key={i}
+                                        style={{
+                                          color: "#334155",
+                                          textAlign: "center",
+                                          padding: 16,
+                                          background: "#f8fafc",
+                                          borderRadius: 12,
+                                          border: `1px solid ${colors.border}`,
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            fontWeight: 600,
+                                            fontSize: "1.125rem",
+                                            marginBottom: 4,
+                                          }}
+                                        >
+                                          {ex.sentence}
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: "0.9375rem",
+                                            color: "#64748b",
+                                            marginBottom: 2,
+                                          }}
+                                        >
+                                          {ex.pronunciation}
+                                        </div>
+                                        <div style={{ fontSize: "1rem" }}>
+                                          {ex.translation?.ko}
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
+                                )}
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "center",
+                                    marginTop: 12,
+                                  }}
+                                >
+                                  <button
+                                    onClick={() => {
+                                      setFeedback(null);
+                                      advanceAfter(0);
+                                    }}
+                                    style={{
+                                      ...s.button,
+                                      ...s.buttonBrand,
+                                      fontSize: "1rem",
+                                      padding: "10px 16px",
+                                    }}
+                                  >
+                                    Next
+                                  </button>
+                                </div>
                               </div>
-                            )}
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "center",
-                                marginTop: 12,
-                              }}
-                            >
-                              <button
-                                onClick={() => {
-                                  setFeedback(null);
-                                  advanceAfter(0);
-                                }}
-                                style={{
-                                  ...s.button,
-                                  ...s.buttonBrand,
-                                  fontSize: "1rem",
-                                  padding: "10px 16px",
-                                }}
-                              >
-                                Next
-                              </button>
-                            </div>
-                          </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </QuizCard>
+                  );
+                })()
+              ) : quiz ? (
+                <QuizCard
+                  quiz={quiz!}
+                  selected={quizSelected}
+                  timeLeftSec={
+                    typeof timeLeftSec === "number" ? timeLeftSec : undefined
+                  }
+                  timerTotalSec={timerTotalSec}
+                  onSelect={(i) => {
+                    if (quizSelected !== null) return;
+                    if (isAdvancing) return;
+                    setQuizEndsAt(null);
+                    setQuizSelected(i);
+                    setPhase("emoji");
+                    const isCorrect = quiz.options[i]?.isCorrect;
+                    const cp = isCorrect
+                      ? emojiCode("success")
+                      : emojiCode("fail");
+                    setFeedback({
+                      key: `${Date.now()}`,
+                      code: cp,
+                      until: Date.now() + 1000,
+                    });
+                    const item = items[current];
+                    (async () => {
+                      if (!user || !item?.id) return;
+                      try {
+                        await incrementReviewStats(user.uid);
+                      } catch (_) {}
+                      try {
+                        await recordReviewEvent(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          isCorrect ? ("good" as Rating) : ("again" as Rating)
                         );
-                      })()}
-                    </div>
-                  )}
-                </QuizCard>
-              );
-            })()
-          ) : quiz ? (
-            <QuizCard
-              quiz={quiz!}
-              selected={quizSelected}
-              timeLeftSec={
-                typeof timeLeftSec === "number" ? timeLeftSec : undefined
-              }
-              timerTotalSec={timerTotalSec}
-              onSelect={(i) => {
-                if (quizSelected !== null) return;
-                if (isAdvancing) return;
-                setQuizEndsAt(null);
-                setQuizSelected(i);
-                setPhase("emoji");
-                const isCorrect = quiz.options[i]?.isCorrect;
-                const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
-                setFeedback({
-                  key: `${Date.now()}`,
-                  code: cp,
-                  until: Date.now() + 1000,
-                });
-                const item = items[current];
-                (async () => {
-                  if (!user || !item?.id) return;
-                  try {
-                    await incrementReviewStats(user.uid);
-                  } catch (_) {}
-                  try {
-                    await recordReviewEvent(
-                      user.uid,
-                      deckRef.current,
-                      item.id,
-                      isCorrect ? ("good" as Rating) : ("again" as Rating)
-                    );
-                    await updateUserLastReview(
-                      user.uid,
-                      deckRef.current,
-                      item.id,
-                      isCorrect ? ("good" as Rating) : ("again" as Rating)
-                    );
-                    await incrementDeckReviewStats(user.uid, deckRef.current);
-                  } catch (_) {}
-                  try {
-                    await updateLeitnerOnQuiz(
-                      user.uid,
-                      deckRef.current,
-                      item.id,
-                      !!isCorrect
-                    );
-                  } catch (_) {}
-                  try {
-                    // optimistic local update of box chips
-                    try {
-                      const map = leitnerMapRef.current || new Map();
-                      const prev = (map.get(item.id) as any)?.box ?? 1;
-                      const delta = isCorrect ? 1 : -1;
-                      const next: 1 | 2 | 3 = Math.max(
-                        1,
-                        Math.min(3, (Number(prev) || 1) + delta)
-                      ) as 1 | 2 | 3;
-                      map.set(item.id, { box: next } as any);
-                      leitnerMapRef.current = map as any;
-                      const ids1: string[] = [];
-                      const ids2: string[] = [];
-                      const ids3: string[] = [];
-                      (map as any as Map<string, { box: 1 | 2 | 3 }>).forEach(
-                        (v, k) => {
-                          if (v.box === 1) ids1.push(k);
-                          else if (v.box === 2) ids2.push(k);
-                          else ids3.push(k);
-                        }
-                      );
-                      const nameOf = async (vid: string): Promise<string> => {
+                        await updateUserLastReview(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          isCorrect ? ("good" as Rating) : ("again" as Rating)
+                        );
+                        await incrementDeckReviewStats(
+                          user.uid,
+                          deckRef.current
+                        );
+                      } catch (_) {}
+                      try {
+                        await updateLeitnerOnQuiz(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          !!isCorrect
+                        );
+                      } catch (_) {}
+                      try {
+                        // optimistic local update of box chips
                         try {
-                          const ref = doc(db, deckRef.current, vid);
-                          const snap = await getDoc(ref);
-                          if (snap.exists()) {
-                            const d = snap.data() as any;
-                            const word = `${d.kana}${
-                              d.kanji && d.kanji !== d.kana
-                                ? ` (${d.kanji})`
-                                : ""
-                            }`;
-                            return word;
-                          }
+                          const map = leitnerMapRef.current || new Map();
+                          const prev = (map.get(item.id) as any)?.box ?? 1;
+                          const delta = isCorrect ? 1 : -1;
+                          const next: 1 | 2 | 3 = Math.max(
+                            1,
+                            Math.min(3, (Number(prev) || 1) + delta)
+                          ) as 1 | 2 | 3;
+                          map.set(item.id, { box: next } as any);
+                          leitnerMapRef.current = map as any;
+                          const ids1: string[] = [];
+                          const ids2: string[] = [];
+                          const ids3: string[] = [];
+                          (
+                            map as any as Map<string, { box: 1 | 2 | 3 }>
+                          ).forEach((v, k) => {
+                            if (v.box === 1) ids1.push(k);
+                            else if (v.box === 2) ids2.push(k);
+                            else ids3.push(k);
+                          });
+                          const nameOf = async (
+                            vid: string
+                          ): Promise<string> => {
+                            try {
+                              const ref = doc(db, deckRef.current, vid);
+                              const snap = await getDoc(ref);
+                              if (snap.exists()) {
+                                const d = snap.data() as any;
+                                const word = `${d.kana}${
+                                  d.kanji && d.kanji !== d.kana
+                                    ? ` (${d.kanji})`
+                                    : ""
+                                }`;
+                                return word;
+                              }
+                            } catch (_) {}
+                            return vid;
+                          };
+                          const [w1, w2, w3] = await Promise.all([
+                            Promise.all(ids1.slice(0, 30).map(nameOf)),
+                            Promise.all(ids2.slice(0, 30).map(nameOf)),
+                            Promise.all(ids3.slice(0, 30).map(nameOf)),
+                          ]);
+                          setBox1Words(w1);
+                          setBox2Words(w2);
+                          setBox3Words(w3);
                         } catch (_) {}
-                        return vid;
-                      };
-                      const [w1, w2, w3] = await Promise.all([
-                        Promise.all(ids1.slice(0, 30).map(nameOf)),
-                        Promise.all(ids2.slice(0, 30).map(nameOf)),
-                        Promise.all(ids3.slice(0, 30).map(nameOf)),
-                      ]);
-                      setBox1Words(w1);
-                      setBox2Words(w2);
-                      setBox3Words(w3);
-                    } catch (_) {}
 
-                    await refreshStats(user.uid, deckRef.current);
-                  } catch (_) {}
-                })();
-                window.setTimeout(() => {
-                  setFeedback(null);
-                  setPhase("meaning");
-                }, 1000);
-              }}
-            />
-          ) : null}
-        </CardWrap>
-        <aside style={{ minHeight: 420, display: "flex", width: "100%" }}>
-          <StatsPanel
-            dailyGoal={dailyGoal}
-            daily={daily}
-            stats={stats as any}
-            deckTotal={deckTotal}
-            itemsLoaded={items.length}
-            box1={box1Words}
-            box2={box2Words}
-            box3={box3Words}
-          />
-        </aside>
-      </PageGrid>
+                        await refreshStats(user.uid, deckRef.current);
+                      } catch (_) {}
+                    })();
+                    window.setTimeout(() => {
+                      setFeedback(null);
+                      setPhase("meaning");
+                    }, 1000);
+                  }}
+                />
+              ) : null}
+            </CardWrap>
+            <aside style={{ minHeight: 420, display: "flex", width: "100%" }}>
+              <StatsPanel
+                dailyGoal={dailyGoal}
+                daily={daily}
+                stats={stats as any}
+                deckTotal={deckTotal}
+                itemsLoaded={items.length}
+                box1={box1Words}
+                box2={box2Words}
+                box3={box3Words}
+              />
+            </aside>
+          </PageGrid>
+        </>
+      )}
     </div>
   );
 }

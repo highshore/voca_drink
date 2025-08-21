@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Panel } from "./Styles";
 import { StatGrid } from "./StatGrid";
 import { useI18n } from "../../i18n/I18nContext";
@@ -28,36 +27,7 @@ export function StatsPanel({
   box3: string[];
 }) {
   const { t } = useI18n();
-  const [maxChips, setMaxChips] = useState<number>(() => {
-    if (typeof window === "undefined") return 6;
-    const w = window.innerWidth;
-    if (w < 480) return 4;
-    if (w < 900) return 6;
-    return 8;
-  });
-
-  useEffect(() => {
-    function onResize() {
-      const w = window.innerWidth;
-      if (w < 480) setMaxChips(4);
-      else if (w < 900) setMaxChips(6);
-      else setMaxChips(8);
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  function BoxRow({
-    label,
-    words,
-    max,
-  }: {
-    label: string;
-    words: string[];
-    max: number;
-  }) {
-    const chips = words.slice(0, max);
-    const truncated = words.length > max;
+  function BoxRow({ label, words }: { label: string; words: string[] }) {
     return (
       <div>
         <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>
@@ -66,16 +36,8 @@ export function StatsPanel({
         {words.length === 0 ? (
           <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-            }}
-          >
-            {chips.map((w) => (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {words.map((w) => (
               <span
                 key={w}
                 style={{
@@ -84,14 +46,16 @@ export function StatsPanel({
                   borderRadius: 999,
                   padding: "4px 8px",
                   background: "#f8fafc",
+                  maxWidth: "100%",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
+                title={w}
               >
                 {w}
               </span>
             ))}
-            {truncated && (
-              <span style={{ fontSize: "0.875rem", color: "#64748b" }}>…</span>
-            )}
           </div>
         )}
       </div>
@@ -132,9 +96,9 @@ export function StatsPanel({
           Leitner boxes
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-          <BoxRow label="Box 1" words={box1} max={maxChips} />
-          <BoxRow label="Box 2" words={box2} max={maxChips} />
-          <BoxRow label="Box 3" words={box3} max={maxChips} />
+          <BoxRow label="Box 1" words={box1} />
+          <BoxRow label="Box 2" words={box2} />
+          <BoxRow label="Box 3" words={box3} />
         </div>
       </div>
       <StatGrid

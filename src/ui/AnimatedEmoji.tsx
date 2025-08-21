@@ -79,3 +79,47 @@ export function emojiCode(
       return "1f389";
   }
 }
+
+// Generic lottie-by-url helper for non-emoji animations
+export function LottieByUrl({
+  src,
+  size = 120,
+  loop = true,
+  autoplay = true,
+  speed = 1,
+  style,
+  className,
+}: {
+  src: string;
+  size?: number;
+  loop?: boolean;
+  autoplay?: boolean;
+  speed?: number;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  const ref = useRef<any>(null);
+  useEffect(() => {
+    const el = ref.current as any;
+    if (!el) return;
+    try {
+      el.setSpeed?.(speed);
+    } catch (_) {}
+  }, [speed]);
+  return React.createElement("lottie-player", {
+    ref,
+    autoplay,
+    loop,
+    src,
+    style: {
+      width: size,
+      height: size,
+      willChange: "transform, opacity",
+      contain: "layout paint size style",
+      ...(style || {}),
+    },
+    className,
+    mode: "normal",
+    background: "transparent",
+  } as any) as any;
+}
