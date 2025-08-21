@@ -26,7 +26,9 @@ export function QuizCard({
   timerTotalSec?: number;
 }) {
   return (
-    <Panel style={{ justifyContent: "center", position: "relative" }}>
+    <Panel
+      style={{ justifyContent: "center", position: "relative", padding: 28 }}
+    >
       {selected === null &&
         typeof timeLeftSec === "number" &&
         typeof timerTotalSec === "number" &&
@@ -34,7 +36,7 @@ export function QuizCard({
           <div
             style={{
               position: "absolute",
-              top: 30,
+              top: 16,
               left: "50%",
               transform: "translateX(-50%)",
               zIndex: 2,
@@ -141,6 +143,13 @@ export function QuizCard({
             fontSize: "1.5rem",
             textAlign: "center",
             letterSpacing: "-0.01em",
+            marginTop:
+              selected === null &&
+              typeof timeLeftSec === "number" &&
+              typeof timerTotalSec === "number" &&
+              timerTotalSec > 0
+                ? 64
+                : 0,
           }}
         >
           {quiz.prompt}

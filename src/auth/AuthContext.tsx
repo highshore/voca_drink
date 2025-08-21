@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { auth, signInWithGoogle, signOutUser, type User } from "../firebase";
 import { ensureUserDocument } from "../services/userService";
 import { onAuthStateChanged } from "firebase/auth";
+import { UniversalLoader } from "../components/UniversalLoader";
 
 type AuthContextValue = {
   user: User | null;
@@ -39,7 +40,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user, isLoading]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {isLoading ? <UniversalLoader message="Initializing…" /> : children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {
