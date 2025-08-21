@@ -31,3 +31,6 @@ voca-drink-b5bb094bd3bd.json
 *.njsproj
 *.sln
 *.sw?
+# local security tooling artifacts
+.gg-replacements.txt
+.gg-replacements-stdin.txt
