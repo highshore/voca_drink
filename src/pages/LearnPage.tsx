@@ -144,8 +144,8 @@ function buildMcqFor(
         (c.meanings?.ko || "").trim() &&
         (c.meanings?.ko || "").trim() !== targetMeaning
     );
-  if (distractors.length < 3) return null;
-  const chosen = shuffleArray(distractors).slice(0, 3);
+  if (distractors.length < 4) return null;
+  const chosen = shuffleArray(distractors).slice(0, 4);
   const forward: McqQuiz = {
     type: "mcq",
     cardId: target.id!,
@@ -392,10 +392,14 @@ export function LearnPage() {
         advanceAfter(0);
       }
       // numeric keys selection while in quiz
-      if (phase === "quiz" && quiz && ["1", "2", "3", "4"].includes(e.key)) {
+      if (
+        phase === "quiz" &&
+        quiz &&
+        ["1", "2", "3", "4", "5"].includes(e.key)
+      ) {
         e.preventDefault();
         const idx = Number(e.key) - 1;
-        if (idx < 0 || idx >= 4) return;
+        if (idx < 0 || idx >= 5) return;
         if (isAdvancing || quizSelected !== null) return;
         setQuizEndsAt(null);
         setQuizSelected(idx);
@@ -763,7 +767,7 @@ export function LearnPage() {
     const base = items[current];
     if (!base || isPageLoading) return;
     // only regenerate on entering quiz phase or when no quiz exists
-    const pool = items.length >= 4 ? items : [...items, ...surprisePool];
+    const pool = items.length >= 5 ? items : [...items, ...surprisePool];
     const q = buildMcqFor(base, pool);
     if (q && (phase === "quiz" || !quiz)) {
       setQuiz(q);

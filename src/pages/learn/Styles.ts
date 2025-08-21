@@ -102,11 +102,8 @@ export const Kanji = styled.div`
 `;
 
 export const QuizOptionsGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   margin-top: 16px;
-  @media (max-width: 480px) {
-    grid-template-columns: 1fr;
-  }
 `;
