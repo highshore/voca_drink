@@ -10,9 +10,7 @@ export function StatsPanel({
   stats,
   deckTotal,
   itemsLoaded,
-  box1,
-  box2,
-  box3,
+  boxCounts,
 }: {
   dailyGoal: number;
   daily: { reviewsToday: number; streakDays: number };
@@ -22,45 +20,17 @@ export function StatsPanel({
   };
   deckTotal: number;
   itemsLoaded: number;
-  box1: string[];
-  box2: string[];
-  box3: string[];
+  boxCounts: { box1: number; box2: number; box3: number };
 }) {
   const { t } = useI18n();
-  function BoxRow({ label, words }: { label: string; words: string[] }) {
-    return (
-      <div>
-        <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>
-          {label} ({words.length})
-        </div>
-        {words.length === 0 ? (
-          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>—</span>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {words.map((w) => (
-              <span
-                key={w}
-                style={{
-                  fontSize: "0.75rem",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 999,
-                  padding: "4px 8px",
-                  background: "#f8fafc",
-                  maxWidth: "100%",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={w}
-              >
-                {w}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
+  const totalInBoxes = boxCounts.box1 + boxCounts.box2 + boxCounts.box3;
+  const denom = deckTotal > 0 ? deckTotal : totalInBoxes || 1;
+  const pct = (n: number) => Math.round((100 * n) / (denom || 1));
+  const complete =
+    deckTotal > 0 &&
+    boxCounts.box3 >= deckTotal &&
+    boxCounts.box1 === 0 &&
+    boxCounts.box2 === 0;
   return (
     <Panel>
       <div
@@ -72,6 +42,21 @@ export function StatsPanel({
       >
         {t("stats.progress")}
       </div>
+      {complete && (
+        <div
+          style={{
+            padding: 12,
+            border: "1px solid #10b981",
+            background: "#ecfdf5",
+            color: "#065f46",
+            borderRadius: 12,
+            fontWeight: 700,
+            marginBottom: 8,
+          }}
+        >
+          🎉 Deck complete! All words are in Easy.
+        </div>
+      )}
       <StatGrid
         columns={2}
         items={[
@@ -95,10 +80,42 @@ export function StatsPanel({
         >
           Leitner boxes
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-          <BoxRow label="Box 1" words={box1} />
-          <BoxRow label="Box 2" words={box2} />
-          <BoxRow label="Box 3" words={box3} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {[
+            { label: "Hard", value: boxCounts.box1, color: "#f59e0b" },
+            { label: "Good", value: boxCounts.box2, color: "#3b82f6" },
+            { label: "Easy", value: boxCounts.box3, color: "#10b981" },
+          ].map((row) => (
+            <div key={row.label}>
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: "#64748b",
+                  marginBottom: 4,
+                }}
+              >
+                {row.label} ({row.value})
+              </div>
+              <div
+                style={{
+                  height: 10,
+                  borderRadius: 999,
+                  background: "#f1f5f9",
+                  border: "1px solid #e2e8f0",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct(row.value)}%`,
+                    height: "100%",
+                    background: row.color,
+                    transition: "width 200ms ease",
+                  }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
       <StatGrid

@@ -11,7 +11,7 @@ function MiniStat({ label, value }: StatItem) {
       }}
     >
       <div style={{ fontSize: "0.875rem", color: "#64748b" }}>{label}</div>
-      <div style={{ fontSize: "1.25rem", fontWeight: 800 }}>{value}</div>
+      <div style={{ fontSize: "1.25rem", fontWeight: 600 }}>{value}</div>
     </div>
   );
 }

@@ -19,6 +19,12 @@ export function DecksPage() {
       description: "Counters, particles, and core vocabulary from Firestore",
       sizeHint: "900+ items",
     },
+    {
+      id: "japanese_kana",
+      title: "Japanese Kana",
+      description: "Kana syllables and sample words from Firestore",
+      sizeHint: "228 items",
+    },
   ]);
 
   useEffect(() => {

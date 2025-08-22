@@ -41,13 +41,12 @@ import {
 } from "../services/reviewStatsService";
 // Replace FSRS with Leitner
 import {
-  getDueVocabIdsForDeck as getDueLeitner,
-  getUpcomingVocabIdsForDeck as getUpcomingLeitner,
   updateLeitnerOnQuiz,
   ensureLeitnerEntries,
   countDueForDeck,
   getBoxIds,
   getLeitnerMapForDeck,
+  selectVocabIdsByFrequency,
 } from "../services/leitnerService";
 
 import { UniversalLoader } from "../components/UniversalLoader";
@@ -178,6 +177,56 @@ function buildMcqFor(
   return Math.random() < 0.5 ? forward : reverse;
 }
 
+function buildTranslationFor(item: JapaneseDoc): {
+  promptKo: string;
+  tokens: string[];
+  blankLabel: string;
+} | null {
+  const examples = Array.isArray(item.examples) ? item.examples : [];
+  const ex = examples.find(
+    (e) => (e as any)?.translation?.ko && (e as any)?.sentence
+  ) as any;
+  if (!ex) return null;
+  const promptKo = (ex.translation?.ko || "").trim();
+  const jpSentence = String(ex.sentence || "").trim();
+  if (!promptKo || !jpSentence) return null;
+  const needle = (item.kanji || item.kana || "").trim();
+  if (!needle) return null;
+
+  let blankSub = "";
+  if (item.kanji && jpSentence.includes(item.kanji)) blankSub = item.kanji;
+  else if (item.kana && jpSentence.includes(item.kana)) blankSub = item.kana;
+  else {
+    const mid = Math.max(0, Math.floor(jpSentence.length / 2) - 1);
+    blankSub = jpSentence.slice(mid, mid + 2) || jpSentence.slice(0, 2);
+  }
+
+  const withBlank = jpSentence.replace(blankSub, "____");
+  const punctSplit = withBlank
+    .split(/([、。！!？?，,．\.\s]+)/)
+    .filter((t) => t && !/^[\s]+$/.test(t));
+  let tokens: string[] = [];
+  if (punctSplit.length > 1) {
+    for (let i = 0; i < punctSplit.length; i++) {
+      const t = punctSplit[i];
+      if (/^[、。！!？?，,．\.]$/.test(t) && tokens.length > 0) {
+        tokens[tokens.length - 1] = tokens[tokens.length - 1] + t;
+      } else if (!/^\s+$/.test(t)) {
+        tokens.push(t);
+      }
+    }
+  } else {
+    for (let i = 0; i < withBlank.length; i += 4) {
+      tokens.push(withBlank.slice(i, i + 4));
+    }
+  }
+  tokens = shuffleArray(tokens);
+  if (!tokens.some((t) => t.includes("____"))) {
+    tokens.push("____");
+  }
+  return { promptKo, tokens, blankLabel: blankSub };
+}
+
 export function LearnPage() {
   const { user, isLoading } = useAuth();
   const [items, setItems] = useState<JapaneseDoc[]>([]);
@@ -215,6 +264,11 @@ export function LearnPage() {
   const [surprisePool, setSurprisePool] = useState<JapaneseDoc[]>([]);
   const [quiz, setQuiz] = useState<McqQuiz | null>(null);
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
+  const [translation, setTranslation] = useState<{
+    promptKo: string;
+    tokens: string[];
+    blankLabel: string;
+  } | null>(null);
   // result is derived at selection time; no separate state needed
   const [feedback, setFeedback] = useState<{
     key: string;
@@ -227,12 +281,13 @@ export function LearnPage() {
   const advanceTimer = useRef<number | null>(null);
   const currentRef = useRef<number>(0);
   const leitnerMapRef = useRef<Map<string, { box: 1 | 2 | 3 }>>(new Map());
+  const lastReplanAtRef = useRef<number>(0);
   const [phase, setPhase] = useState<"quiz" | "emoji" | "meaning">("quiz");
   const deckRef = useRef<string>("japanese");
-  const QUIZ_TIMEOUT_MS = 5000;
+  const QUIZ_TIMEOUT_MS = 8000;
   const [quizEndsAt, setQuizEndsAt] = useState<number | null>(null);
-  const [timeLeftSec, setTimeLeftSec] = useState<number>(5);
-  const [timerTotalSec, setTimerTotalSec] = useState<number>(5);
+  const [timeLeftSec, setTimeLeftSec] = useState<number>(10);
+  const [timerTotalSec, setTimerTotalSec] = useState<number>(10);
 
   // auto-clear feedback overlay
   useEffect(() => {
@@ -267,7 +322,7 @@ export function LearnPage() {
     }, Math.max(0, ms));
   }
 
-  // 5s timeout when in quiz phase and no selection
+  // 10s timeout when in quiz phase and no selection
   const quizTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
     if (quizTimeoutRef.current) {
@@ -278,10 +333,24 @@ export function LearnPage() {
     if (!item || phase !== "quiz" || quizSelected !== null || isPageLoading)
       return;
     // start per-question countdown
-    const ends = Date.now() + QUIZ_TIMEOUT_MS;
+    // Use 30s for Box 3 translation tasks
+    const isBox3 = (() => {
+      try {
+        const eid = item.id;
+        if (!eid) return false;
+        const entry = (
+          leitnerMapRef.current as any as Map<string, { box: 1 | 2 | 3 }>
+        ).get(eid);
+        return (entry?.box || 1) === 3;
+      } catch (_) {
+        return false;
+      }
+    })();
+    const timeoutMs = isBox3 ? 30000 : QUIZ_TIMEOUT_MS;
+    const ends = Date.now() + timeoutMs;
     setQuizEndsAt(ends);
-    setTimerTotalSec(QUIZ_TIMEOUT_MS / 1000);
-    setTimeLeftSec(QUIZ_TIMEOUT_MS / 1000);
+    setTimerTotalSec(timeoutMs / 1000);
+    setTimeLeftSec(timeoutMs / 1000);
     quizTimeoutRef.current = window.setTimeout(() => {
       if (phase !== "quiz" || quizSelected !== null) return;
       // mark incorrect, go to emoji then meaning
@@ -359,7 +428,7 @@ export function LearnPage() {
         setFeedback(null);
         setPhase("meaning");
       }, 1000);
-    }, 5000) as any;
+    }, timeoutMs) as any;
     return () => {
       if (quizTimeoutRef.current) window.clearTimeout(quizTimeoutRef.current);
       quizTimeoutRef.current = null;
@@ -473,9 +542,14 @@ export function LearnPage() {
   // no JS resize listener needed; styles are responsive
 
   const [deckTitle, setDeckTitle] = useState<string>("");
-  const [box1Words, setBox1Words] = useState<string[]>([]);
-  const [box2Words, setBox2Words] = useState<string[]>([]);
-  const [box3Words, setBox3Words] = useState<string[]>([]);
+  const setBox1Words = useState<string[]>([])[1];
+  const setBox2Words = useState<string[]>([])[1];
+  const setBox3Words = useState<string[]>([])[1];
+  const [boxCounts, setBoxCounts] = useState<{
+    box1: number;
+    box2: number;
+    box3: number;
+  }>({ box1: 0, box2: 0, box3: 0 });
   const headline = useMemo(() => {
     if (isLoading) return "Loading";
     const base = user ? "Your queue" : "Public queue";
@@ -512,6 +586,47 @@ export function LearnPage() {
         // Update due count and map ref synchronously
         setStats((prev) => ({ ...prev, dueNow: dueCount }));
         leitnerMapRef.current = m as any;
+        setBoxCounts({
+          box1: ids1.length,
+          box2: ids2.length,
+          box3: ids3.length,
+        });
+
+        // If any box overflows capacity, replan session immediately using Fibonacci weights
+        const capacities = { 1: 200, 2: 120, 3: 80 } as const;
+        const overflow =
+          ids1.length > capacities[1] ||
+          ids2.length > capacities[2] ||
+          ids3.length > capacities[3];
+        const nowTs = Date.now();
+        if (overflow && nowTs - (lastReplanAtRef.current || 0) > 10000) {
+          lastReplanAtRef.current = nowTs;
+          (async () => {
+            try {
+              const sessionIds = await selectVocabIdsByFrequency(
+                user.uid,
+                deck,
+                100,
+                {
+                  sessionSize: 100,
+                  weights: { 1: 13, 2: 8, 3: 5 },
+                  capacities,
+                  preferDue: true,
+                }
+              );
+              if (sessionIds && sessionIds.length > 0) {
+                const docs = await batchFetchVocabDocs(
+                  deck,
+                  sessionIds.slice(0, 50)
+                );
+                if (docs.length > 0) {
+                  setItems(docs);
+                  setCurrent(0);
+                }
+              }
+            } catch (_) {}
+          })();
+        }
 
         // Debounce expensive word name loading
         const loadWords = async () => {
@@ -552,11 +667,6 @@ export function LearnPage() {
   }, [user, deck]);
   useEffect(() => {
     async function load() {
-      if (deck !== "japanese") {
-        navigate("/decks", { replace: true });
-        return;
-      }
-
       setIsPageLoading(true);
       setError(null);
 
@@ -609,10 +719,14 @@ export function LearnPage() {
           // Ensure Leitner entries and get vocab to study
           await ensureLeitnerEntries(user.uid, deck, seedIds);
 
-          // Get due/upcoming vocab and stats in parallel
-          const [dueIds, upcomingIds, statsData] = await Promise.all([
-            getDueLeitner(user.uid, deck, 100),
-            getUpcomingLeitner(user.uid, deck, 100),
+          // Get stats and plan session IDs using Fibonacci-weighted selection
+          const [sessionIds, statsData] = await Promise.all([
+            selectVocabIdsByFrequency(user.uid, deck, 100, {
+              sessionSize: 100,
+              weights: { 1: 13, 2: 8, 3: 5 },
+              capacities: { 1: 200, 2: 120, 3: 80 },
+              preferDue: true,
+            }),
             Promise.all([
               getTodayRatingDistribution(user.uid, deck),
               get7DayRetention(user.uid, deck),
@@ -623,8 +737,7 @@ export function LearnPage() {
               getLeitnerMapForDeck(user.uid, deck),
             ]),
           ]);
-
-          const idsToFetch = dueIds.length > 0 ? dueIds : upcomingIds;
+          const idsToFetch = sessionIds;
 
           // Parallelize vocab and surprise pool loading
           const [vocabDocs, surprisePoolDocs] = await Promise.all([
@@ -766,7 +879,23 @@ export function LearnPage() {
   useEffect(() => {
     const base = items[current];
     if (!base || isPageLoading) return;
-    // only regenerate on entering quiz phase or when no quiz exists
+    // If item is in box 3 and has examples, build translation task; else MCQ
+    const entry = base.id
+      ? (leitnerMapRef.current as any as Map<string, { box: 1 | 2 | 3 }>).get(
+          base.id
+        )
+      : null;
+    const isBox3 = (entry?.box || 1) === 3;
+    if (isBox3) {
+      const tr = buildTranslationFor(base);
+      if (tr) {
+        setTranslation(tr);
+        setQuiz(null);
+        setQuizSelected(null);
+        return;
+      }
+    }
+    setTranslation(null);
     const pool = items.length >= 5 ? items : [...items, ...surprisePool];
     const q = buildMcqFor(base, pool);
     if (q && (phase === "quiz" || !quiz)) {
@@ -837,6 +966,98 @@ export function LearnPage() {
               const base = items[current] || ({} as JapaneseDoc);
               const pool =
                 items.length >= 4 ? items : [...items, ...surprisePool];
+              const isKanaDeck = deckRef.current === "japanese_kana";
+              if (isKanaDeck) {
+                const it = items[current];
+                if (!it) return <Panel style={{ minHeight: 420 }} />;
+                const hasKanji = it.kanji && it.kanji !== it.kana;
+                return (
+                  <Panel style={{ minHeight: 420 }}>
+                    <div style={{ marginTop: 16 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 14,
+                        }}
+                      >
+                        <KanaRow>
+                          <Kana>{it.kana}</Kana>
+                          {hasKanji && <Kanji>{it.kanji}</Kanji>}
+                        </KanaRow>
+                        <div
+                          style={{
+                            textAlign: "center",
+                            fontSize: "1.25rem",
+                            fontWeight: 700,
+                            letterSpacing: "-0.01em",
+                          }}
+                        >
+                          {it.meanings?.ko}
+                        </div>
+                        {it.examples && it.examples.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 12,
+                            }}
+                          >
+                            {it.examples.map((ex, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  color: "#334155",
+                                  textAlign: "center",
+                                  padding: 16,
+                                  background: "#f8fafc",
+                                  borderRadius: 12,
+                                  border: `1px solid ${colors.border}`,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontWeight: 600,
+                                    fontSize: "1.125rem",
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  {ex.sentence}
+                                </div>
+                                <div style={{ fontSize: "1rem" }}>
+                                  {ex.translation?.ko}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "center",
+                            marginTop: 12,
+                          }}
+                        >
+                          <button
+                            onClick={() => {
+                              setFeedback(null);
+                              advanceAfter(0);
+                            }}
+                            style={{
+                              ...s.button,
+                              ...s.buttonBrand,
+                              fontSize: "1rem",
+                              padding: "10px 16px",
+                            }}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
+                );
+              }
               const q = buildMcqFor(base, pool);
               if (!q) {
                 return <Panel style={{ minHeight: 420 }} />;
@@ -850,7 +1071,7 @@ export function LearnPage() {
                   hidePrompt
                 >
                   {phase === "meaning" && items[current] && (
-                    <div style={{ marginTop: 16 }}>
+                    <div>
                       {(() => {
                         const it = items[current];
                         if (!it) return null;
@@ -952,6 +1173,90 @@ export function LearnPage() {
                 </QuizCard>
               );
             })()
+          ) : translation ? (
+            <Panel style={{ minHeight: 420, display: "flex", gap: 16 }}>
+              <div style={{ textAlign: "center", fontWeight: 700 }}>
+                Translate: {translation.promptKo}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  justifyContent: "center",
+                }}
+              >
+                {translation.tokens.map((t, i) => (
+                  <span
+                    key={`${t}-${i}`}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      background: t.includes("____") ? "#fff7ed" : "#f8fafc",
+                      fontWeight: t.includes("____") ? 800 : 700,
+                    }}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <button
+                  onClick={() => {
+                    if (quizSelected !== null || isAdvancing) return;
+                    // Treat as correct when user confirms
+                    setQuizSelected(0);
+                    setPhase("emoji");
+                    setFeedback({
+                      key: `${Date.now()}`,
+                      code: emojiCode("success"),
+                      until: Date.now() + 1000,
+                    });
+                    const item = items[current];
+                    (async () => {
+                      if (!user || !item?.id) return;
+                      try {
+                        await incrementReviewStats(user.uid);
+                      } catch (_) {}
+                      try {
+                        await recordReviewEvent(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          "good" as Rating
+                        );
+                        await updateUserLastReview(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          "good" as Rating
+                        );
+                        await incrementDeckReviewStats(
+                          user.uid,
+                          deckRef.current
+                        );
+                      } catch (_) {}
+                      try {
+                        await updateLeitnerOnQuiz(
+                          user.uid,
+                          deckRef.current,
+                          item.id,
+                          true
+                        );
+                      } catch (_) {}
+                    })();
+                    window.setTimeout(() => {
+                      setFeedback(null);
+                      setPhase("meaning");
+                    }, 1000);
+                  }}
+                  style={{ ...s.button, ...s.buttonBrand }}
+                >
+                  I translated it
+                </button>
+              </div>
+            </Panel>
           ) : quiz ? (
             <QuizCard
               quiz={quiz!}
@@ -1066,9 +1371,7 @@ export function LearnPage() {
             stats={stats as any}
             deckTotal={deckTotal}
             itemsLoaded={items.length}
-            box1={box1Words}
-            box2={box2Words}
-            box3={box3Words}
+            boxCounts={boxCounts}
           />
         </aside>
       </PageGrid>

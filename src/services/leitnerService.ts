@@ -253,3 +253,138 @@ export async function getBoxIds(
       .map((e) => e.vocabId as string);
   }
 }
+
+// Fibonacci-weighted session planner
+export type FrequencySelectorOptions = {
+  sessionSize?: number;
+  weights?: Partial<Record<1 | 2 | 3, number>>; // relative frequency per box
+  capacities?: Partial<Record<1 | 2 | 3, number>>; // soft capacity to trigger immediate reviews
+  preferDue?: boolean; // pick due items first within each box
+};
+
+const DEFAULT_WEIGHTS: Record<1 | 2 | 3, number> = { 1: 13, 2: 8, 3: 5 };
+const DEFAULT_CAPACITIES: Record<1 | 2 | 3, number> = { 1: 200, 2: 120, 3: 80 };
+
+// Select vocab IDs for a study session using Fibonacci-like weights per box.
+// If a box exceeds its capacity, we boost its quota so it is reviewed immediately more often.
+export async function selectVocabIdsByFrequency(
+  uid: string,
+  deck: string,
+  sessionSize = 50,
+  options: FrequencySelectorOptions = {}
+): Promise<string[]> {
+  const weights = { ...DEFAULT_WEIGHTS, ...(options.weights || {}) } as Record<
+    1 | 2 | 3,
+    number
+  >;
+  const capacities = {
+    ...DEFAULT_CAPACITIES,
+    ...(options.capacities || {}),
+  } as Record<1 | 2 | 3, number>;
+  const preferDue = options.preferDue !== false; // default true
+
+  const lmap = await getLeitnerMapForDeck(uid, deck);
+  const nowIso = new Date().toISOString();
+
+  const byBox: Record<1 | 2 | 3, LeitnerEntry[]> = { 1: [], 2: [], 3: [] };
+  lmap.forEach((entry) => {
+    if (
+      entry.deck === deck &&
+      (entry.box === 1 || entry.box === 2 || entry.box === 3)
+    ) {
+      byBox[entry.box].push(entry);
+    }
+  });
+
+  // Compute base quotas using weights
+  const totalWeight = (weights[1] || 0) + (weights[2] || 0) + (weights[3] || 0);
+  const quotas: Record<1 | 2 | 3, number> = {
+    1:
+      totalWeight > 0
+        ? Math.floor((sessionSize * (weights[1] || 0)) / totalWeight)
+        : 0,
+    2:
+      totalWeight > 0
+        ? Math.floor((sessionSize * (weights[2] || 0)) / totalWeight)
+        : 0,
+    3:
+      totalWeight > 0
+        ? Math.floor((sessionSize * (weights[3] || 0)) / totalWeight)
+        : 0,
+  };
+  let allocated = quotas[1] + quotas[2] + quotas[3];
+  while (allocated < sessionSize) {
+    // Allocate remaining slots to highest-weight boxes first
+    const addOrder: (1 | 2 | 3)[] = ([1, 2, 3] as const)
+      .slice()
+      .sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+    for (const b of addOrder) {
+      if (allocated >= sessionSize) break;
+      quotas[b] += 1;
+      allocated += 1;
+    }
+  }
+
+  // Boost quotas for over-capacity boxes
+  ([1, 2, 3] as const).forEach((b) => {
+    const count = byBox[b].length;
+    const cap = capacities[b];
+    if (cap > 0 && count > cap) {
+      const overflow = count - cap;
+      // extra quota proportional to overflow; bounded so it doesn't dominate
+      const extra = Math.min(
+        Math.ceil(overflow / 10),
+        Math.max(3, Math.ceil(sessionSize * 0.25))
+      );
+      quotas[b] = Math.min(sessionSize, quotas[b] + extra);
+    }
+  });
+
+  // Normalize quotas to not exceed session size by trimming from least-weighted first (higher box)
+  let sumQuotas = quotas[1] + quotas[2] + quotas[3];
+  if (sumQuotas > sessionSize) {
+    let over = sumQuotas - sessionSize;
+    const reduceOrder: (1 | 2 | 3)[] = [3, 2, 1];
+    for (const b of reduceOrder) {
+      if (over <= 0) break;
+      const reducible = Math.min(over, quotas[b]);
+      quotas[b] -= reducible;
+      over -= reducible;
+    }
+  }
+
+  const result: string[] = [];
+  for (const b of [1, 2, 3] as const) {
+    if (result.length >= sessionSize) break;
+    const entries = [...byBox[b]].sort((a, c) =>
+      (a.dueAt || "").localeCompare(c.dueAt || "")
+    );
+    const due = entries.filter(
+      (e) => typeof e.dueAt === "string" && e.dueAt <= nowIso
+    );
+    const notDue = entries.filter(
+      (e) => !(typeof e.dueAt === "string" && e.dueAt <= nowIso)
+    );
+    const quota = quotas[b];
+
+    const takeFrom = (arr: LeitnerEntry[], needed: number) => {
+      for (const e of arr) {
+        if (result.length >= sessionSize) break;
+        if (needed <= 0) break;
+        result.push(e.vocabId);
+        needed -= 1;
+      }
+      return needed;
+    };
+
+    let need = quota;
+    if (preferDue) {
+      need = takeFrom(due, need);
+      need = takeFrom(notDue, need);
+    } else {
+      need = takeFrom([...due, ...notDue], need);
+    }
+  }
+
+  return result.slice(0, sessionSize);
+}

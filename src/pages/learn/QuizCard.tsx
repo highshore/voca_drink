@@ -27,7 +27,12 @@ export function QuizCard({
 }) {
   return (
     <Panel
-      style={{ justifyContent: "center", position: "relative", padding: 28 }}
+      style={{
+        justifyContent: "center",
+        position: "relative",
+        padding: 28,
+        minHeight: 420,
+      }}
     >
       {selected === null &&
         typeof timeLeftSec === "number" &&

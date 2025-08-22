@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isPublicDeck(deck) {
+      return get(/databases/$(database)/documents/$(deck)/metadata).data.isPublic == true;
+    }
+
+    // Public decks: allow read when deck metadata declares isPublic = true
+    match /{deck}/{docId} {
+      allow read: if isPublicDeck(deck) || docId == 'metadata';
+      allow write: if false;
+    }
+
+    // User data (private)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      match /leitner/{entryId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /reviews/{revId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /deckStats/{deckId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Default deny
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+
+

@@ -32,6 +32,7 @@ export const Panel = styled.div`
   flex-direction: column;
   gap: 16px;
   width: 100%;
+  justify-content: center;
   @media (max-width: 640px) {
     padding: 24px;
     border-radius: 16px;
