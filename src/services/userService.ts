@@ -369,6 +369,95 @@ export async function incrementDeckReviewStats(
   );
 }
 
+// --- Bookmarks ---
+export async function addBookmark(
+  uid: string,
+  deck: string,
+  vocabId: string
+): Promise<void> {
+  const id = `${deck}:${vocabId}`;
+  const ref = doc(db, "users", uid, "bookmarks", id);
+  await setDoc(
+    ref,
+    { deck, vocabId, createdAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+export async function removeBookmark(
+  uid: string,
+  deck: string,
+  vocabId: string
+): Promise<void> {
+  const id = `${deck}:${vocabId}`;
+  const ref = doc(db, "users", uid, "bookmarks", id);
+  await deleteDoc(ref);
+}
+
+// --- Reports --- (user-generated content quality reports)
+export async function submitReport(
+  uid: string,
+  deck: string,
+  vocabId: string,
+  reason?: string
+): Promise<void> {
+  const col = collection(db, "reports");
+  await addDoc(col, {
+    uid,
+    deck,
+    vocabId,
+    reason: reason || null,
+    status: "open",
+    createdAt: serverTimestamp(),
+  });
+}
+
+// --- Per-deck preferences ---
+export async function getDeckDailyGoal(
+  uid: string,
+  deck: string
+): Promise<number | null> {
+  try {
+    // Preferred location: deckStats/{deck}
+    const statsRef = doc(db, "users", uid, "deckStats", deck);
+    const statsSnap = await getDoc(statsRef);
+    if (statsSnap.exists()) {
+      const d = statsSnap.data() as any;
+      const g = Number(d.dailyGoal);
+      if (Number.isFinite(g) && g > 0) return g;
+    }
+  } catch (_) {}
+  // Backward compatibility: deckPrefs/{deck}
+  try {
+    const legacyRef = doc(db, "users", uid, "deckPrefs", deck);
+    const legacySnap = await getDoc(legacyRef);
+    if (legacySnap.exists()) {
+      const d = legacySnap.data() as any;
+      const g = Number(d.dailyGoal);
+      return Number.isFinite(g) && g > 0 ? g : null;
+    }
+  } catch (_) {}
+  return null;
+}
+
+export async function setDeckDailyGoal(
+  uid: string,
+  deck: string,
+  goal: number
+): Promise<void> {
+  const g = Math.max(1, Math.floor(Number(goal) || 0));
+  const statsRef = doc(db, "users", uid, "deckStats", deck);
+  await setDoc(
+    statsRef,
+    {
+      deck,
+      dailyGoal: g,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 // --- Accountability buddies ---
 export async function getAccountabilityBuddies(uid: string): Promise<string[]> {
   const snap = await getDoc(userDocRef(uid));

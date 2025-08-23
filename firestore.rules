@@ -27,6 +27,13 @@ service cloud.firestore {
       }
     }
 
+    // Reports collection: allow any signed-in user to create reports; restrict reads to admins
+    match /reports/{reportId} {
+      allow create: if isSignedIn();
+      allow read: if request.auth != null && request.auth.token.admin == true; // requires custom claims
+      allow update, delete: if false;
+    }
+
     // Default deny
     match /{document=**} { allow read, write: if false; }
   }

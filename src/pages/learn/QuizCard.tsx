@@ -1,5 +1,6 @@
 import { Panel, QuizOptionsGrid } from "./Styles";
 import type { ReactNode } from "react";
+import { useI18n } from "../../i18n/I18nContext";
 
 export type QuizOption = { text: string; isCorrect: boolean };
 export type McqQuiz =
@@ -25,6 +26,7 @@ export function QuizCard({
   timeLeftSec?: number;
   timerTotalSec?: number;
 }) {
+  const { t } = useI18n();
   return (
     <Panel
       style={{
@@ -189,6 +191,31 @@ export function QuizCard({
               {i + 1}) {opt.text}
             </button>
           ))}
+          {/* I don't know option */}
+          <button
+            onClick={() =>
+              selected === null ? onSelect(-1 as any) : undefined
+            }
+            style={{
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: "16px 18px",
+              fontSize: "1.25rem",
+              fontWeight: 700,
+              background:
+                selected === null
+                  ? "#f8fafc"
+                  : (selected as any) === -1
+                  ? "#fee2e2"
+                  : "#ffffff",
+              cursor: selected === null ? "pointer" : "default",
+              willChange: "transform",
+              transform: (selected as any) === -1 ? "scale(0.98)" : undefined,
+              transition: "transform 120ms ease",
+            }}
+          >
+            {t("quiz.idk")}
+          </button>
         </QuizOptionsGrid>
       )}
       {children}

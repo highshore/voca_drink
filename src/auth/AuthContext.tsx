@@ -42,7 +42,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {isLoading ? <UniversalLoader message="Initializing…" /> : children}
+      {isLoading ? (
+        <UniversalLoader messageKey="common.initializing" />
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 }

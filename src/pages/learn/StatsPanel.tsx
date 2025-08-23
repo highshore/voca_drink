@@ -11,6 +11,7 @@ export function StatsPanel({
   deckTotal,
   itemsLoaded,
   boxCounts,
+  onChangeDailyGoal,
 }: {
   dailyGoal: number;
   daily: { reviewsToday: number; streakDays: number };
@@ -21,6 +22,7 @@ export function StatsPanel({
   deckTotal: number;
   itemsLoaded: number;
   boxCounts: { box1: number; box2: number; box3: number };
+  onChangeDailyGoal?: (goal: number) => void;
 }) {
   const { t } = useI18n();
   const totalInBoxes = boxCounts.box1 + boxCounts.box2 + boxCounts.box3;
@@ -69,6 +71,34 @@ export function StatsPanel({
           { label: t("stats.done"), value: daily.reviewsToday },
         ]}
       />
+      {typeof onChangeDailyGoal === "function" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "#64748b" }}>Daily goal</span>
+          <input
+            type="number"
+            min={1}
+            value={dailyGoal}
+            onChange={(e) => {
+              const v = Math.max(1, Math.floor(Number(e.target.value) || 0));
+              onChangeDailyGoal(v);
+            }}
+            style={{
+              width: 72,
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              padding: "4px 6px",
+              fontSize: 12,
+            }}
+          />
+        </div>
+      )}
       <div style={{ marginTop: 10 }}>
         <div
           style={{

@@ -19,6 +19,8 @@ import {
   recordReviewEvent,
   updateUserLastReview,
   incrementDeckReviewStats,
+  getDeckDailyGoal,
+  setDeckDailyGoal,
   type Rating,
 } from "../services/userService";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -50,6 +52,12 @@ import {
 } from "../services/leitnerService";
 
 import { UniversalLoader } from "../components/UniversalLoader";
+import { useI18n } from "../i18n/I18nContext";
+import {
+  addBookmark,
+  removeBookmark,
+  submitReport,
+} from "../services/userService";
 
 type JapaneseDoc = {
   id?: string;
@@ -181,6 +189,7 @@ function buildTranslationFor(item: JapaneseDoc): {
   promptKo: string;
   tokens: string[];
   blankLabel: string;
+  maskedSentence: string;
 } | null {
   const examples = Array.isArray(item.examples) ? item.examples : [];
   const ex = examples.find(
@@ -224,10 +233,11 @@ function buildTranslationFor(item: JapaneseDoc): {
   if (!tokens.some((t) => t.includes("____"))) {
     tokens.push("____");
   }
-  return { promptKo, tokens, blankLabel: blankSub };
+  return { promptKo, tokens, blankLabel: blankSub, maskedSentence: withBlank };
 }
 
 export function LearnPage() {
+  const { t } = useI18n();
   const { user, isLoading } = useAuth();
   const [items, setItems] = useState<JapaneseDoc[]>([]);
   const [current, setCurrent] = useState(0);
@@ -268,7 +278,9 @@ export function LearnPage() {
     promptKo: string;
     tokens: string[];
     blankLabel: string;
+    maskedSentence?: string;
   } | null>(null);
+  const [typedAnswer, setTypedAnswer] = useState<string>("");
   // result is derived at selection time; no separate state needed
   const [feedback, setFeedback] = useState<{
     key: string;
@@ -285,9 +297,12 @@ export function LearnPage() {
   const [phase, setPhase] = useState<"quiz" | "emoji" | "meaning">("quiz");
   const deckRef = useRef<string>("japanese");
   const QUIZ_TIMEOUT_MS = 8000;
+  const TRANSLATION_TIMEOUT_MS = 40000;
   const [quizEndsAt, setQuizEndsAt] = useState<number | null>(null);
   const [timeLeftSec, setTimeLeftSec] = useState<number>(10);
   const [timerTotalSec, setTimerTotalSec] = useState<number>(10);
+  const [isBookmarked, setIsBookmarked] = useState<boolean>(false);
+  const [isReported, setIsReported] = useState<boolean>(false);
 
   // auto-clear feedback overlay
   useEffect(() => {
@@ -322,6 +337,38 @@ export function LearnPage() {
     }, Math.max(0, ms));
   }
 
+  async function refreshLeitnerBoxes() {
+    if (!user) return;
+    try {
+      const [b1, b2, b3] = await Promise.all([
+        getBoxIds(user.uid, deckRef.current, 1, 30),
+        getBoxIds(user.uid, deckRef.current, 2, 30),
+        getBoxIds(user.uid, deckRef.current, 3, 30),
+      ]);
+      const nameOf = async (vid: string): Promise<string> => {
+        try {
+          const ref = doc(db, deckRef.current, vid);
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const d = snap.data() as any;
+            return `${d.kana}${
+              d.kanji && d.kanji !== d.kana ? ` (${d.kanji})` : ""
+            }`;
+          }
+        } catch (_) {}
+        return vid;
+      };
+      const [w1, w2, w3] = await Promise.all([
+        Promise.all(b1.slice(0, 30).map(nameOf)),
+        Promise.all(b2.slice(0, 30).map(nameOf)),
+        Promise.all(b3.slice(0, 30).map(nameOf)),
+      ]);
+      setBox1Words(w1);
+      setBox2Words(w2);
+      setBox3Words(w3);
+    } catch (_) {}
+  }
+
   // 10s timeout when in quiz phase and no selection
   const quizTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
@@ -346,7 +393,7 @@ export function LearnPage() {
         return false;
       }
     })();
-    const timeoutMs = isBox3 ? 30000 : QUIZ_TIMEOUT_MS;
+    const timeoutMs = isBox3 ? TRANSLATION_TIMEOUT_MS : QUIZ_TIMEOUT_MS;
     const ends = Date.now() + timeoutMs;
     setQuizEndsAt(ends);
     setTimerTotalSec(timeoutMs / 1000);
@@ -422,6 +469,9 @@ export function LearnPage() {
             setBox2Words(w2);
             setBox3Words(w3);
           } catch (_) {}
+        } catch (_) {}
+        try {
+          await refreshLeitnerBoxes();
         } catch (_) {}
       })();
       window.setTimeout(() => {
@@ -510,6 +560,9 @@ export function LearnPage() {
           } catch (_) {}
           try {
           } catch (_) {}
+          try {
+            await refreshLeitnerBoxes();
+          } catch (_) {}
         })();
         window.setTimeout(() => {
           setFeedback(null);
@@ -542,9 +595,16 @@ export function LearnPage() {
   // no JS resize listener needed; styles are responsive
 
   const [deckTitle, setDeckTitle] = useState<string>("");
-  const setBox1Words = useState<string[]>([])[1];
-  const setBox2Words = useState<string[]>([])[1];
-  const setBox3Words = useState<string[]>([])[1];
+  // Removed sample word chips for boxes to avoid fallback displays
+  const setBox1Words = (() => (_: string[]) => {}) as unknown as React.Dispatch<
+    React.SetStateAction<string[]>
+  >;
+  const setBox2Words = (() => (_: string[]) => {}) as unknown as React.Dispatch<
+    React.SetStateAction<string[]>
+  >;
+  const setBox3Words = (() => (_: string[]) => {}) as unknown as React.Dispatch<
+    React.SetStateAction<string[]>
+  >;
   const [boxCounts, setBoxCounts] = useState<{
     box1: number;
     box2: number;
@@ -628,39 +688,7 @@ export function LearnPage() {
           })();
         }
 
-        // Debounce expensive word name loading
-        const loadWords = async () => {
-          try {
-            const vocabIds = [
-              ...ids1.slice(0, 30),
-              ...ids2.slice(0, 30),
-              ...ids3.slice(0, 30),
-            ];
-            const wordDocs = await batchFetchVocabDocs(deck, vocabIds);
-            const wordMap = new Map(
-              wordDocs.map((doc) => [
-                doc.id!,
-                `${doc.kana}${
-                  doc.kanji && doc.kanji !== doc.kana ? ` (${doc.kanji})` : ""
-                }`,
-              ])
-            );
-
-            setBox1Words(ids1.slice(0, 30).map((id) => wordMap.get(id) || id));
-            setBox2Words(ids2.slice(0, 30).map((id) => wordMap.get(id) || id));
-            setBox3Words(ids3.slice(0, 30).map((id) => wordMap.get(id) || id));
-          } catch (_) {
-            // Fallback to IDs if batch fetch fails
-            setBox1Words(ids1.slice(0, 30));
-            setBox2Words(ids2.slice(0, 30));
-            setBox3Words(ids3.slice(0, 30));
-          }
-        };
-
-        // Only load words if there are changes
-        if (ids1.length > 0 || ids2.length > 0 || ids3.length > 0) {
-          loadWords();
-        }
+        // Removed sampling of box word names to avoid showing fallback lists
       } catch (_) {}
     });
     return () => unsub();
@@ -701,13 +729,12 @@ export function LearnPage() {
             })(),
           ]);
 
-          // Set user data
+          // Set user data and deck-specific daily goal
           if (userDoc) {
             setDaily({
               reviewsToday: Number(userDoc.reviewsToday || 0),
               streakDays: Number(userDoc.streakDays || 0),
             });
-            setDailyGoal(Number(userDoc.dailyGoal || 20));
           }
 
           // Set deck metadata
@@ -766,6 +793,14 @@ export function LearnPage() {
               }
             })(),
           ]);
+
+          // Load deck-specific daily goal (fallback to 20 if missing)
+          try {
+            const dg = await getDeckDailyGoal(user.uid, deck);
+            setDailyGoal(Number(dg ?? 20));
+          } catch (_) {
+            setDailyGoal(20);
+          }
 
           // Process stats data
           const [mix, retention, dueCount, b1, b2, b3, lmap] = statsData;
@@ -890,6 +925,7 @@ export function LearnPage() {
       const tr = buildTranslationFor(base);
       if (tr) {
         setTranslation(tr);
+        setTypedAnswer("");
         setQuiz(null);
         setQuizSelected(null);
         return;
@@ -904,11 +940,30 @@ export function LearnPage() {
     }
   }, [items, current, surprisePool, phase, isPageLoading]);
 
+  // Track bookmark/report state for the current item
+  useEffect(() => {
+    (async () => {
+      try {
+        setIsBookmarked(false);
+        setIsReported(false);
+        const item = items[current];
+        if (!user || !item?.id) return;
+        const id = `${deckRef.current}:${item.id}`;
+        try {
+          const ref = doc(db, "users", user.uid, "bookmarks", id);
+          const snap = await getDoc(ref);
+          if (snap.exists()) setIsBookmarked(true);
+        } catch (_) {}
+        // Optional: you could also check if user previously reported this item (not stored per-user now)
+      } catch (_) {}
+    })();
+  }, [items, current, user]);
+
   // no reveal behavior in quiz-only flow
 
   // Show loading screen until everything is ready
   if (isLoading || isPageLoading) {
-    return <UniversalLoader message="Loading your study session..." />;
+    return <UniversalLoader messageKey="common.loadingSession" />;
   }
 
   return (
@@ -942,6 +997,171 @@ export function LearnPage() {
       )}
       <PageGrid>
         <CardWrap>
+          {/* Top-right actions */}
+          {phase === "meaning" && (
+            <div
+              style={{
+                position: "absolute",
+                top: 10,
+                right: 10,
+                display: "flex",
+                gap: 12,
+                zIndex: 6,
+              }}
+            >
+              <button
+                aria-label="Bookmark"
+                onClick={async () => {
+                  const item = items[current];
+                  if (!item?.id) return;
+                  if (!user) {
+                    try {
+                      window.alert(t("nav.signInShort"));
+                    } catch (_) {}
+                    return;
+                  }
+                  const next = !isBookmarked;
+                  setIsBookmarked(next); // optimistic
+                  try {
+                    if (next) {
+                      await addBookmark(user.uid, deckRef.current, item.id);
+                    } else {
+                      await removeBookmark(user.uid, deckRef.current, item.id);
+                    }
+                  } catch (_) {
+                    // revert on failure
+                    setIsBookmarked(!next);
+                  }
+                }}
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 8,
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+                title={isBookmarked ? "Remove bookmark" : "Save bookmark"}
+              >
+                {isBookmarked ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    width="20"
+                    height="20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M6.32 2.577a49.255 49.255 0 0 1 11.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 0 1-1.085.67L12 18.089l-7.165 3.583A.75.75 0 0 1 3.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="1.5"
+                    stroke="currentColor"
+                    width="20"
+                    height="20"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
+                    />
+                  </svg>
+                )}
+                <div style={{ fontSize: 10, color: "#64748b" }}>
+                  {t("ui.save")}
+                </div>
+              </button>
+              <button
+                aria-label="Report"
+                onClick={async () => {
+                  const item = items[current];
+                  if (!item?.id) return;
+                  if (!user) {
+                    try {
+                      window.alert(t("nav.signInShort"));
+                    } catch (_) {}
+                    return;
+                  }
+                  const reason =
+                    window.prompt("Report reason? (optional)") || undefined;
+                  try {
+                    await submitReport(
+                      user.uid,
+                      deckRef.current,
+                      item.id,
+                      reason
+                    );
+                    setIsReported(true);
+                    setFeedback({
+                      key: `${Date.now()}`,
+                      code: emojiCode("success"),
+                      until: Date.now() + 800,
+                    });
+                  } catch (_) {
+                    setIsReported(false);
+                  }
+                }}
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 8,
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+                title="Report issue"
+              >
+                {isReported ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    width="20"
+                    height="20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M3 2.25a.75.75 0 0 1 .75.75v.54l1.838-.46a9.75 9.75 0 0 1 6.725.738l.108.054A8.25 8.25 0 0 0 18 4.524l3.11-.732a.75.75 0 0 1 .917.81 47.784 47.784 0 0 0 .005 10.337.75.75 0 0 1-.574.812l-3.114.733a9.75 9.75 0 0 1-6.594-.77l-.108-.054a8.25 8.25 0 0 0-5.69-.625l-2.202.55V21a.75.75 0 0 1-1.5 0V3A.75.75 0 0 1 3 2.25Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="1.5"
+                    stroke="currentColor"
+                    width="20"
+                    height="20"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"
+                    />
+                  </svg>
+                )}
+                <div style={{ fontSize: 10, color: "#64748b" }}>
+                  {t("ui.report")}
+                </div>
+              </button>
+            </div>
+          )}
+
           {/* Overlay feedback emoji */}
           {feedback && feedback.until > Date.now() && (
             <div
@@ -1174,43 +1394,244 @@ export function LearnPage() {
               );
             })()
           ) : translation ? (
-            <Panel style={{ minHeight: 420, display: "flex", gap: 16 }}>
-              <div style={{ textAlign: "center", fontWeight: 700 }}>
+            <Panel
+              style={{
+                minHeight: 420,
+                display: "flex",
+                gap: 16,
+                position: "relative",
+              }}
+            >
+              {quizSelected === null &&
+                typeof timeLeftSec === "number" &&
+                typeof timerTotalSec === "number" &&
+                timerTotalSec > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 16,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      zIndex: 2,
+                      pointerEvents: "none",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "#ffffff",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 999,
+                        boxShadow: "0 6px 20px rgba(0, 0, 0, 0.08)",
+                        padding: "6px 10px 8px 10px",
+                        minWidth: 96,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <div
+                        style={{ position: "relative", width: 28, height: 28 }}
+                      >
+                        <svg
+                          width={28}
+                          height={28}
+                          viewBox="0 0 28 28"
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            transform: "rotate(-90deg)",
+                          }}
+                          aria-hidden="true"
+                        >
+                          <circle
+                            cx={14}
+                            cy={14}
+                            r={11}
+                            stroke="#e2e8f0"
+                            strokeWidth={3}
+                            fill="none"
+                          />
+                          <circle
+                            cx={14}
+                            cy={14}
+                            r={11}
+                            stroke="#f97316"
+                            strokeWidth={3}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={2 * Math.PI * 11}
+                            strokeDashoffset={
+                              2 *
+                              Math.PI *
+                              11 *
+                              (1 -
+                                Math.max(
+                                  0,
+                                  Math.min(1, timeLeftSec / timerTotalSec)
+                                ))
+                            }
+                          />
+                        </svg>
+                        <div
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "#f97316",
+                          }}
+                        >
+                          <svg
+                            width={16}
+                            height={16}
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25ZM12.75 6a.75.75 0 0 0-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 0 0 0-1.5h-3.75V6Z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.875rem",
+                          fontWeight: 700,
+                          color: "#0f172a",
+                        }}
+                      >
+                        {Math.max(0, Math.ceil(timeLeftSec))}s
+                      </div>
+                    </div>
+                  </div>
+                )}
+              <div
+                style={{
+                  textAlign: "center",
+                  fontWeight: 800,
+                  fontSize: "1.25rem",
+                  letterSpacing: "-0.01em",
+                  marginTop:
+                    quizSelected === null &&
+                    typeof timeLeftSec === "number" &&
+                    typeof timerTotalSec === "number" &&
+                    timerTotalSec > 0
+                      ? 64
+                      : 0,
+                }}
+              >
                 Translate: {translation.promptKo}
               </div>
               <div
                 style={{
                   display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  justifyContent: "center",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 12,
                 }}
               >
-                {translation.tokens.map((t, i) => (
-                  <span
-                    key={`${t}-${i}`}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 10,
-                      padding: "8px 10px",
-                      background: t.includes("____") ? "#fff7ed" : "#f8fafc",
-                      fontWeight: t.includes("____") ? 800 : 700,
-                    }}
-                  >
-                    {t}
-                  </span>
-                ))}
+                <div
+                  style={{
+                    textAlign: "center",
+                    fontWeight: 700,
+                    fontSize: "1.375rem",
+                  }}
+                >
+                  {translation.maskedSentence}
+                </div>
+                <input
+                  value={typedAnswer}
+                  onChange={(e) => setTypedAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const answer = typedAnswer.trim();
+                      if (answer.length === 0) return;
+                      const isCorrect = answer === translation.blankLabel;
+                      setQuizSelected(isCorrect ? 0 : (-1 as any));
+                      setPhase("emoji");
+                      setFeedback({
+                        key: `${Date.now()}`,
+                        code: isCorrect
+                          ? emojiCode("success")
+                          : emojiCode("fail"),
+                        until: Date.now() + 1000,
+                      });
+                      const item = items[current];
+                      (async () => {
+                        if (!user || !item?.id) return;
+                        try {
+                          await incrementReviewStats(user.uid);
+                        } catch (_) {}
+                        try {
+                          await recordReviewEvent(
+                            user.uid,
+                            deckRef.current,
+                            item.id,
+                            isCorrect ? ("good" as Rating) : ("again" as Rating)
+                          );
+                          await updateUserLastReview(
+                            user.uid,
+                            deckRef.current,
+                            item.id,
+                            isCorrect ? ("good" as Rating) : ("again" as Rating)
+                          );
+                          await incrementDeckReviewStats(
+                            user.uid,
+                            deckRef.current
+                          );
+                        } catch (_) {}
+                        try {
+                          await updateLeitnerOnQuiz(
+                            user.uid,
+                            deckRef.current,
+                            item.id,
+                            isCorrect
+                          );
+                        } catch (_) {}
+                      })();
+                      window.setTimeout(() => {
+                        setFeedback(null);
+                        setPhase("meaning");
+                      }, 1000);
+                    }
+                  }}
+                  placeholder="Type the missing word"
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    background: "#fff7ed",
+                    fontWeight: 700,
+                    fontSize: "1.125rem",
+                    minWidth: 200,
+                    textAlign: "center",
+                  }}
+                />
               </div>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <button
                   onClick={() => {
                     if (quizSelected !== null || isAdvancing) return;
-                    // Treat as correct when user confirms
-                    setQuizSelected(0);
+                    const answer = typedAnswer.trim();
+                    if (answer.length === 0) return;
+                    const isCorrect = answer === translation.blankLabel;
+                    setQuizSelected(isCorrect ? 0 : (-1 as any));
                     setPhase("emoji");
                     setFeedback({
                       key: `${Date.now()}`,
-                      code: emojiCode("success"),
+                      code: isCorrect
+                        ? emojiCode("success")
+                        : emojiCode("fail"),
                       until: Date.now() + 1000,
                     });
                     const item = items[current];
@@ -1224,13 +1645,13 @@ export function LearnPage() {
                           user.uid,
                           deckRef.current,
                           item.id,
-                          "good" as Rating
+                          isCorrect ? ("good" as Rating) : ("again" as Rating)
                         );
                         await updateUserLastReview(
                           user.uid,
                           deckRef.current,
                           item.id,
-                          "good" as Rating
+                          isCorrect ? ("good" as Rating) : ("again" as Rating)
                         );
                         await incrementDeckReviewStats(
                           user.uid,
@@ -1242,7 +1663,7 @@ export function LearnPage() {
                           user.uid,
                           deckRef.current,
                           item.id,
-                          true
+                          isCorrect
                         );
                       } catch (_) {}
                     })();
@@ -1253,7 +1674,7 @@ export function LearnPage() {
                   }}
                   style={{ ...s.button, ...s.buttonBrand }}
                 >
-                  I translated it
+                  Check
                 </button>
               </div>
             </Panel>
@@ -1271,7 +1692,7 @@ export function LearnPage() {
                 setQuizEndsAt(null);
                 setQuizSelected(i);
                 setPhase("emoji");
-                const isCorrect = quiz.options[i]?.isCorrect;
+                const isCorrect = i >= 0 ? quiz.options[i]?.isCorrect : false;
                 const cp = isCorrect ? emojiCode("success") : emojiCode("fail");
                 setFeedback({
                   key: `${Date.now()}`,
@@ -1355,6 +1776,9 @@ export function LearnPage() {
                       setBox3Words(w3);
                     } catch (_) {}
                   } catch (_) {}
+                  try {
+                    await refreshLeitnerBoxes();
+                  } catch (_) {}
                 })();
                 window.setTimeout(() => {
                   setFeedback(null);
@@ -1372,6 +1796,13 @@ export function LearnPage() {
             deckTotal={deckTotal}
             itemsLoaded={items.length}
             boxCounts={boxCounts}
+            onChangeDailyGoal={async (goal: number) => {
+              try {
+                if (!user) return;
+                await setDeckDailyGoal(user.uid, deckRef.current, goal);
+                setDailyGoal(goal);
+              } catch (_) {}
+            }}
           />
         </aside>
       </PageGrid>

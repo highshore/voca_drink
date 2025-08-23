@@ -39,6 +39,7 @@ export const messages: Record<LanguageCode, Messages> = {
 
     // Quiz
     "quiz.continue": "Continue",
+    "quiz.idk": "I don't know",
 
     // Stats
     "stats.progress": "Progress",
@@ -61,6 +62,10 @@ export const messages: Record<LanguageCode, Messages> = {
 
     // Common
     "common.loading": "Loading",
+    "common.loadingSession": "Loading your study session...",
+    "common.initializing": "Initializing…",
+    "ui.save": "Save",
+    "ui.report": "Report",
 
     // Profile
     "profile.title": "Profile",
@@ -119,6 +124,7 @@ export const messages: Record<LanguageCode, Messages> = {
 
     // Quiz
     "quiz.continue": "계속",
+    "quiz.idk": "모르겠어요",
 
     // Stats
     "stats.progress": "진행도",
@@ -141,6 +147,10 @@ export const messages: Record<LanguageCode, Messages> = {
 
     // Common
     "common.loading": "로딩 중",
+    "common.loadingSession": "학습 세션을 불러오는 중...",
+    "common.initializing": "초기화 중…",
+    "ui.save": "저장",
+    "ui.report": "신고",
 
     // Profile
     "profile.title": "프로필",

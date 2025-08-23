@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  collection,
+  getDocs,
+  orderBy,
+  query,
+} from "firebase/firestore";
 import { useAuth } from "../auth/AuthContext";
 import { db } from "../firebase";
 
@@ -17,6 +25,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState<UserDoc | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reports, setReports] = useState<any[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -27,6 +36,22 @@ export function DashboardPage() {
       setLoading(false);
     }
     load();
+  }, [user]);
+
+  useEffect(() => {
+    async function loadReports() {
+      try {
+        const qref = query(
+          collection(db, "reports"),
+          orderBy("createdAt", "desc")
+        );
+        const snap = await getDocs(qref);
+        const arr: any[] = [];
+        snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
+        setReports(arr);
+      } catch (_) {}
+    }
+    loadReports();
   }, [user]);
 
   const remaining = useMemo(() => {
@@ -138,6 +163,44 @@ export function DashboardPage() {
                 <div style={{ fontSize: 12, color: "#64748b" }}>Streak</div>
                 <div style={{ fontWeight: 700 }}>{data.streakDays} days</div>
               </div>
+            </div>
+          </div>
+          <div className="col-12">
+            <div className="card">
+              <div style={{ fontWeight: 700 }}>Recent Reports</div>
+              {reports.length === 0 ? (
+                <div style={{ paddingTop: 8, color: "#64748b" }}>
+                  No reports
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  {reports.slice(0, 20).map((r) => (
+                    <div
+                      key={r.id}
+                      style={{ padding: 8, borderTop: "1px solid #f1f5f9" }}
+                    >
+                      <div style={{ fontSize: 12, color: "#64748b" }}>
+                        {r.createdAt?.toDate?.().toLocaleString?.() || ""}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "baseline",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{r.deck}</div>
+                        <div style={{ color: "#0f172a" }}>{r.vocabId}</div>
+                      </div>
+                      {r.reason && (
+                        <div style={{ fontSize: 12, color: "#334155" }}>
+                          {r.reason}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

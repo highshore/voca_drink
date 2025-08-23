@@ -367,22 +367,34 @@ export async function selectVocabIdsByFrequency(
     );
     const quota = quotas[b];
 
-    const takeFrom = (arr: LeitnerEntry[], needed: number) => {
-      for (const e of arr) {
-        if (result.length >= sessionSize) break;
-        if (needed <= 0) break;
-        result.push(e.vocabId);
-        needed -= 1;
+    // Helper to sample without replacement using simple shuffle
+    const sample = (arr: LeitnerEntry[], k: number): string[] => {
+      if (k <= 0 || arr.length === 0) return [];
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
       }
-      return needed;
+      return a.slice(0, k).map((e) => e.vocabId);
     };
 
     let need = quota;
     if (preferDue) {
-      need = takeFrom(due, need);
-      need = takeFrom(notDue, need);
+      // Oldest due first, but randomize within ties by shuffling small window
+      const takeDue = Math.min(need, due.length);
+      const dueSlice = due.slice(0, takeDue);
+      // Small shuffle to avoid head bias among equal dueAt
+      const dueIds = sample(dueSlice, takeDue);
+      result.push(...dueIds);
+      need -= dueIds.length;
+      if (need > 0) {
+        const notDueIds = sample(notDue, need);
+        result.push(...notDueIds);
+      }
     } else {
-      need = takeFrom([...due, ...notDue], need);
+      const all = [...due, ...notDue];
+      const pick = sample(all, need);
+      result.push(...pick);
     }
   }
 
